@@ -1,0 +1,43 @@
+<!-- EduProof – Open Graph Banner 1200x630 -->
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EduProof – Smart learning. Verified.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0F4FD6"/>
+      <stop offset="1" stop-color="#21A0FF"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#21A0FF"/>
+      <stop offset="1" stop-color="#0F4FD6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <g opacity=".12">
+    <circle cx="1060" cy="90" r="220" fill="#fff"/>
+    <circle cx="100" cy="560" r="180" fill="#fff"/>
+  </g>
+
+  <!-- icon (big, left) -->
+  <g transform="translate(120,115) scale(2.1)">
+    <path d="M110 0c32 18 64 18 96 0 3 70-17 118-96 160-79-42-99-90-96-160 32 18 64 18 96 0z" fill="url(#shield)"/>
+    <path d="M66 55h88v52c0 3-3 5-6 4-22-7-39-7-56 0-3 1-6-1-6-4V55z" fill="#fff"/>
+    <path d="M66 55c20-8 40-8 62 0v52c-22-7-42-7-62 0V55z" fill="#EAF1FF"/>
+    <path d="M90 95l19 19 47-47" fill="none" stroke="#2EBD59" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- wordmark & copy -->
+  <g font-family="Inter, ui-sans-serif, system-ui">
+    <text x="520" y="240" font-size="88" font-weight="800" fill="#FFFFFF">Edu</text>
+    <text x="690" y="240" font-size="88" font-weight="800" fill="#CFF7DB">Proof</text>
+
+    <text x="520" y="300" font-size="34" fill="#EAF1FF" opacity=".95" letter-spacing=".3px">
+      Smart learning. Verified.
+    </text>
+
+    <text x="520" y="360" font-size="24" fill="#EAF1FF" opacity=".8">AI-powered OCR • NFT Certificates • On-chain Verification</text>
+
+    <rect x="520" y="410" rx="10" ry="10" width="400" height="64" fill="#FFFFFF" opacity=".14"/>
+    <text x="540" y="452" font-size="28" fill="#FFFFFF">eduproof.app</text>
+  </g>
+</svg>

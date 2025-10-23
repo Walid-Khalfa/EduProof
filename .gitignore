@@ -1,0 +1,67 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# Environment variables - CRITICAL: Never commit these files
+.env
+.env.local
+.env*.local
+.env.server
+.env.production
+.env.development
+
+# typescript
+*.tsbuildinfo
+
+.codepanda/
+
+# Foundry/Forge (Smart Contracts)
+contracts/lib/
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# Server logs and process files
+*.log
+*.pid
+server.log
+server.pid
+server-test.log
+server-test.pid
+
+# Test files
+test-*.sh
+debug-*.js
+diagnose-*.js
+
+# Temporary files
+*.tmp
+*.temp

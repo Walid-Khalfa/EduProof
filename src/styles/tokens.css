@@ -1,0 +1,67 @@
+:root {
+  /* Base surfaces */
+  --bg: #F7F7FB;
+  --surface: #FFFFFF;
+  --surface-2: #F2F4F8;
+
+  /* Text */
+  --text: #111318;
+  --text-muted: #5A6272;
+  --placeholder: #8C93A3;
+
+  /* Borders & shadows */
+  --border: #E5E7EF;
+  --ring: #7C3AED33; /* focus ring translucent */
+  --shadow-1: 0 1px 2px rgba(16,24,40,.08), 0 2px 8px rgba(16,24,40,.06);
+
+  /* Brand (light) */
+  --brand: #6D5DF6;
+  --brand-2: #9B8CFF;
+  --accent: #22C3EE;
+
+  /* Status (light) */
+  --success: #0E9F6E;
+  --success-bg: #E8FBF3;
+  --warn: #D97706;
+  --warn-bg: #FFF6E6;
+  --error: #DC2626;
+  --error-bg: #FFEAEA;
+
+  /* Inputs */
+  --input-bg: #FFFFFF;
+  --input-border: #D9DDE8;
+  --input-text: #111318;
+
+  /* Gradients */
+  --cta-grad: linear-gradient(90deg, #816CFF 0%, #5CD6FF 100%);
+}
+
+:root.dark {
+  --bg: #0B0D14;
+  --surface: #0F1420;
+  --surface-2: #121829;
+
+  --text: #EAEFF7;
+  --text-muted: #A9B3C8;
+  --placeholder: #8892A6;
+
+  --border: #243046;
+  --ring: #8B5CF699;
+
+  --brand: #9FA8FF;  /* slightly desaturated for dark */
+  --brand-2: #66D1FF;
+  --accent: #60E6FF;
+
+  --success: #34D399;
+  --success-bg: #0D1D17;
+  --warn: #F59E0B;
+  --warn-bg: #1D1506;
+  --error: #F87171;
+  --error-bg: #2C1212;
+
+  --input-bg: #0F1420;
+  --input-border: #27324A;
+  --input-text: #EAEFF7;
+
+  --cta-grad: linear-gradient(90deg, #6F78FF 0%, #3EC5FF 100%);
+}
