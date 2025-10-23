@@ -1,0 +1,16 @@
+{
+  "name": "EduProof",
+  "short_name": "EduProof",
+  "description": "Mint and verify blockchain-backed academic certificates with AI OCR, IPFS and Ethereum",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#1976F3",
+  "background_color": "#0B1324",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}

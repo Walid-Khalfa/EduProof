@@ -1,0 +1,7 @@
+<!-- EduProof Icon (Monochrome) -->
+<svg width="40" height="40" viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EduProof Icon">
+  <path d="M110 10c32 18 64 18 96 0 3 70-17 118-96 160-79-42-99-90-96-160 32 18 64 18 96 0z" fill="currentColor"/>
+  <path d="M66 65h88v52c0 3-3 5-6 4-22-7-39-7-56 0-3 1-6-1-6-4V65z" fill="#fff"/>
+  <path d="M66 65c20-8 40-8 62 0v52c-22-7-42-7-62 0V65z" fill="rgba(255,255,255,0.3)"/>
+  <path d="M90 105l19 19 47-47" fill="none" stroke="#2EBD59" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

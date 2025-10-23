@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Backend Health Check</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #0f0; }
+        pre { background: #000; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        .error { color: #f00; }
+        .success { color: #0f0; }
+        .warning { color: #ff0; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Backend Diagnostic</h1>
+    <div id="output"></div>
+    
+    <script>
+        const output = document.getElementById('output');
+        const baseUrl = 'https://preview-dd6a73f5-6622-48d5-bbc7-00e416f12c6e.codenut.dev';
+        
+        async function checkHealth() {
+            output.innerHTML += '<h2>Testing /api/health...</h2>';
+            
+            try {
+                const res = await fetch(`${baseUrl}/api/health`);
+                const data = await res.json();
+                
+                output.innerHTML += `<pre class="success">${JSON.stringify(data, null, 2)}</pre>`;
+                
+                if (!data.gemini_key_present) {
+                    output.innerHTML += '<p class="error">⚠️ CRITICAL: Gemini API key not loaded!</p>';
+                    output.innerHTML += '<p class="warning">Backend cannot process OCR without GEMINI_API_KEY in .env.server</p>';
+                } else {
+                    output.innerHTML += '<p class="success">✅ Gemini API key configured</p>';
+                    output.innerHTML += `<p class="success">📋 Model: ${data.model}</p>`;
+                }
+            } catch (e) {
+                output.innerHTML += `<pre class="error">❌ Health check failed: ${e.message}</pre>`;
+            }
+        }
+        
+        checkHealth();
+    </script>
+</body>
+</html>
