@@ -162,13 +162,16 @@ SUPABASE_ANON_KEY=...
 
 ## End-to-End Test (Screenshots)
 
+## End-to-End Test (Screenshots)
+
 | Step | Screenshot | Description |
 |------|-------------|-------------|
-| 1. Home | [![Home](https://i.imgur.com/csq5hU4.png)](https://i.imgur.com/csq5hU4) | Connect MetaMask |
-| 2. Mint Certificate | [![Mint](https://i.imgur.com/RfSHdxI.png)](https://i.imgur.com/RfSHdxI) | Fill form + upload PDF |
-| 3. Success | [![Success](https://i.imgur.com/s2yF4IP.png)](https://i.imgur.com/s2yF4IP) | Blockchain confirmation |
-| 4. My Certificates | [![MyCerts](https://i.imgur.com/XilKiFR.png)](https://i.imgur.com/XilKiFR) | NFT overview |
-| 5. Verify | [![Verify](https://i.imgur.com/tVn4ucz.png)](https://i.imgur.com/tVn4ucz) | AI validation ✓ Verified |
+| 1. Home | [![Home thumbnail](https://i.imgur.com/csq5hU4.png)](https://imgur.com/a/csq5hU4) | Connect MetaMask |
+| 2. Mint Certificate | [![Mint thumbnail](https://i.imgur.com/RfSHdxI.png)](https://imgur.com/a/RfSHdxI) | Fill form + upload PDF |
+| 3. Success | [![Success thumbnail](https://i.imgur.com/s2yF4IP.png)](https://imgur.com/a/s2yF4IP) | Blockchain confirmation |
+| 4. My Certificates | [![MyCerts thumbnail](https://i.imgur.com/XilKiFR.png)](https://imgur.com/a/XilKiFR) | NFT overview |
+| 5. Verify | [![Verify thumbnail](https://i.imgur.com/tVn4ucz.png)](https://imgur.com/a/tVn4ucz) | AI validation ✓ Verified |
+
 ---
 
 ## How to Test AI Validation
