@@ -164,11 +164,11 @@ SUPABASE_ANON_KEY=...
 
 | Step | Screenshot | Description |
 |------|------------|-------------|
-| 1. Home | ![Home](https://i.imgur.com/csq5hU4.png) | Connect MetaMask |
-| 2. Mint Certificate | ![Mint Certificate](https://i.imgur.com/RfSHdxI.png) | Fill form + upload PDF |
-| 3. Success | ![Success](https://i.imgur.com/s2yF4IP.png) | Blockchain confirmation |
-| 4. My Certificates | ![My Certificates](https://i.imgur.com/XilKiFR.png) | NFT overview |
-| 5. Verify | ![Verify](https://i.imgur.com/tVn4ucz.png) | AI validation ✓ Verified |
+| 1. Home | [Home Screenshot](https://imgur.com/a/csq5hU4) | Connect MetaMask |
+| 2. Mint Certificate | [Mint Certificate Screenshot](https://imgur.com/a/RfSHdxI) | Fill form + upload PDF |
+| 3. Success | [Success Screenshot](https://imgur.com/a/s2yF4IP) | Blockchain confirmation |
+| 4. My Certificates | [My Certificates Screenshot](https://imgur.com/a/XilKiFR) | NFT overview |
+| 5. Verify | [Verify Screenshot](https://imgur.com/a/tVn4ucz) | AI validation ✓ Verified |
 
 ---
 
