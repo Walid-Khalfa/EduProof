@@ -163,12 +163,12 @@ SUPABASE_ANON_KEY=...
 ## End-to-End Test (Screenshots)
 
 | Step | Screenshot | Description |
-|------|-----------|-------------|
-| 1. Home | Home | Connect MetaMask |
-| 2. Mint Certificate | Mint Certificate | Fill form + upload PDF |
-| 3. Success | Success | Blockchain confirmation |
-| 4. My Certificates | My Certificates | NFT overview |
-| 5. Verify | Verify | AI validation ✓ Verified |
+|------|-------------|-------------|
+| 1. Home | [![Home thumbnail](https://i.imgur.com/csq5hU4.png)](https://imgur.com/a/csq5hU4) | Connect MetaMask |
+| 2. Mint Certificate | [![Mint thumbnail](https://i.imgur.com/RfSHdxI.png)](https://imgur.com/a/RfSHdxI) | Fill form + upload PDF |
+| 3. Success | [![Success thumbnail](https://i.imgur.com/s2yF4IP.png)](https://imgur.com/a/s2yF4IP) | Blockchain confirmation |
+| 4. My Certificates | [![MyCerts thumbnail](https://i.imgur.com/XilKiFR.png)](https://imgur.com/a/XilKiFR) | NFT overview |
+| 5. Verify | [![Verify thumbnail](https://i.imgur.com/tVn4ucz.png)](https://imgur.com/a/tVn4ucz) | AI validation ✓ Verified |
 
 ---
 
