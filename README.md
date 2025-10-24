@@ -243,12 +243,24 @@ EduProof was built and deployed using **CodeNut's AI-powered Vibe Coding environ
 This project was developed for the **CodeNut Global Vibe: AI Web3 Hackathon 2025** and showcases how AI (Gemini 2.5 Flash) and blockchain (CodeNut DevNet) can combine to secure academic credentials worldwide.
 
 ---
+## 🎬 Demo Video
 
-## Demo Video
+**EduProof Walkthrough – AI + Web3 Certification Demo**
 
-**Watch the EduProof Demo**
+> *A 5-minute end-to-end demonstration showing how EduProof creates, verifies, and manages AI-validated blockchain certificates.*
 
-*"EduProof's 4-minute walkthrough shows how the platform creates, verifies, and manages blockchain-secured academic certificates."*
+<p align="center">
+  <a href="https://youtu.be/L_D76FIDfIA" target="_blank">
+    <img src="https://img.youtube.com/vi/L_D76FIDfIA/maxresdefault.jpg" 
+         alt="Watch the EduProof Demo Video" width="800" style="border-radius:12px;">
+  </a>
+</p>
+
+🎥 **Watch here:** [https://youtu.be/L_D76FIDfIA](https://youtu.be/L_D76FIDfIA)
+
+---
+
+> 💡 *Tip:* The thumbnail above is clickable — it opens the YouTube demo directly in a new tab.
 
 ---
 
