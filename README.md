@@ -193,7 +193,7 @@ npm run dev
 
 ### Deployed on CodeNut Preview Domain
 
-**Live demo:** https://preview-dd6a73f5-6622-48d5-bbc7-00e416f12c6e.codenut.dev
+**Live demo:** https://edu-proof.vercel.app/
 
 - ✅ Entièrement opérationnelle sur **CodeNut DevNet** (le message WalletConnect 400 est attendu et sans impact).
 - ✅ Transactions instantanées avec **zéro frais de gas**
