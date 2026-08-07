@@ -37,6 +37,9 @@ contract TemporaryDeployFactory {
         certificate.grantRole(certificateAdminRole, msg.sender);
         certificate.grantRole(institutionRole, msg.sender);
 
+        // Link the institution registry so active institutions can mint directly
+        certificate.setRegistry(address(registry));
+
         // Build dynamic arrays for event
         string[] memory contractNames = new string[](2);
         contractNames[0] = "InstitutionRegistry";

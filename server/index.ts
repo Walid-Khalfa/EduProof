@@ -24,7 +24,7 @@ try {
 }
 
 // Validate required environment variables at startup
-const requiredEnv = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE', 'GEMINI_API_KEY', 'PINATA_JWT'];
+const requiredEnv = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE', 'GEMINI_API_KEY', 'PINATA_JWT', 'RPC_URL', 'CERTIFICATE_CONTRACT'];
 const missingEnv = requiredEnv.filter(key => !process.env[key]);
 if (missingEnv.length > 0) {
   missingEnv.forEach(key => logger.error(`Missing required env var: ${key}`));

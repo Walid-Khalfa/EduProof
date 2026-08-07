@@ -65,3 +65,5 @@ diagnose-*.js
 # Temporary files
 *.tmp
 *.temp
+# Foundry dependencies
+contracts/lib/

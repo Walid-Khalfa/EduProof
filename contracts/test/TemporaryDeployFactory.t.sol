@@ -410,6 +410,114 @@ contract TemporaryDeployFactoryTest is Test {
         certificate.revoke(0, "Unauthorized revocation");
     }
 
+    // ============ Registry-Integrated Minting Tests ============
+
+    function testFactoryLinksRegistryToCertificate() public {
+        assertEq(
+            address(certificate.registry()),
+            address(registry),
+            "Factory must link the InstitutionRegistry to the certificate"
+        );
+    }
+
+    function testMintByRegisteredInstitutionWithoutRole() public {
+        // institution1 has NO INSTITUTION_ROLE but is registered as an active institution
+        vm.prank(admin);
+        registry.registerInstitution(institution1, "MIT", "did:example:mit123");
+
+        bytes32 studentHash = keccak256(abi.encodePacked("John Doe"));
+
+        vm.prank(institution1);
+        certificate.safeMint(
+            student1,
+            "ipfs://certificate1",
+            studentHash,
+            "John Doe",
+            "Computer Science 101",
+            "MIT",
+            "2024-01-15"
+        );
+
+        assertEq(certificate.ownerOf(0), student1, "Certificate should be minted to student1");
+    }
+
+    function testMintByRevokedInstitutionReverts() public {
+        vm.prank(admin);
+        registry.registerInstitution(institution1, "MIT", "did:example:mit123");
+        vm.prank(admin);
+        registry.revokeInstitution(institution1);
+
+        bytes32 studentHash = keccak256(abi.encodePacked("John Doe"));
+
+        vm.prank(institution1);
+        vm.expectRevert("EduProofCertificate: caller is not an active institution");
+        certificate.safeMint(
+            student1,
+            "ipfs://certificate1",
+            studentHash,
+            "John Doe",
+            "Computer Science 101",
+            "MIT",
+            "2024-01-15"
+        );
+    }
+
+    function testMintByUnregisteredInstitutionReverts() public {
+        // institution1 has no role and is not registered in the registry
+        bytes32 studentHash = keccak256(abi.encodePacked("John Doe"));
+
+        vm.prank(institution1);
+        vm.expectRevert("EduProofCertificate: caller is not an active institution");
+        certificate.safeMint(
+            student1,
+            "ipfs://certificate1",
+            studentHash,
+            "John Doe",
+            "Computer Science 101",
+            "MIT",
+            "2024-01-15"
+        );
+    }
+
+    function testRevokeByRegisteredInstitution() public {
+        vm.prank(admin);
+        registry.registerInstitution(institution1, "MIT", "did:example:mit123");
+
+        bytes32 studentHash = keccak256(abi.encodePacked("John Doe"));
+
+        vm.prank(institution1);
+        certificate.safeMint(
+            student1,
+            "ipfs://certificate1",
+            studentHash,
+            "John Doe",
+            "Computer Science 101",
+            "MIT",
+            "2024-01-15"
+        );
+
+        // institution1 has no INSTITUTION_ROLE but is active in the registry
+        vm.prank(institution1);
+        certificate.revoke(0, "Fraudulent certificate");
+
+        assertEq(certificate.status(0), "Revoked", "Certificate should be revoked");
+    }
+
+    function testSetRegistryOnlyDefaultAdmin() public {
+        vm.prank(unauthorized);
+        vm.expectRevert();
+        certificate.setRegistry(address(registry));
+
+        // Admin can set the registry
+        certificate.setRegistry(address(registry));
+        assertEq(address(certificate.registry()), address(registry));
+    }
+
+    function testSetRegistryZeroAddressReverts() public {
+        vm.expectRevert("EduProofCertificate: zero registry address");
+        certificate.setRegistry(address(0));
+    }
+
     // ============ EduProofCertificate Edge Cases ============
 
     function testMintToZeroAddress() public {

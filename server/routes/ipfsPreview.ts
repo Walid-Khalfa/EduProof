@@ -136,7 +136,7 @@ async function fetchFromGateways(cid: string): Promise<{
 }
 
 router.get('/preview/:cid.debug', async (req: Request, res: Response) => {
-  const { cid } = req.params;
+  const cid = String(req.params.cid || "");
   const startTime = Date.now();
 
   logger.debug('IPFS preview debug', { cid });
@@ -187,7 +187,7 @@ router.get('/preview/:cid.debug', async (req: Request, res: Response) => {
 });
 
 router.get('/preview/:cid.svg', async (req: Request, res: Response) => {
-  const { cid } = req.params;
+  const cid = String(req.params.cid || "");
   const startTime = Date.now();
 
   logger.debug('IPFS preview request', { cid });

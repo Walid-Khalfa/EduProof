@@ -7,10 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Building2, UserPlus, UserX, Settings, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
+import { Building2, UserPlus, UserX, Settings, CheckCircle, Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { useToast } from '@/hooks/use-toast';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 import axios from 'axios';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -35,6 +36,7 @@ type AdminInstitutionListResponse = {
 
 export default function Admin() {
   const { address, isConnected } = useAccount();
+  const { authHeaders, signed, signing, signIn, authError } = useAdminAuth();
   const { toast } = useToast();
 
   const [newInstitution, setNewInstitution] = useState({
@@ -73,9 +75,7 @@ export default function Admin() {
         `${API_BASE}/api/admin/institutions`,
         {
           params,
-          headers: {
-            'x-wallet-address': address || '',
-          },
+          headers: authHeaders,
         }
       );
 
@@ -126,9 +126,7 @@ export default function Admin() {
           status: 'approved',
         },
         {
-          headers: {
-            'x-wallet-address': address || '',
-          },
+          headers: authHeaders,
         }
       );
 
@@ -159,9 +157,7 @@ export default function Admin() {
         `${API_BASE}/api/admin/institutions/${id}/revoke`,
         {},
         {
-          headers: {
-            'x-wallet-address': address || '',
-          },
+          headers: authHeaders,
         }
       );
 
@@ -190,9 +186,7 @@ export default function Admin() {
         `${API_BASE}/api/admin/institutions/${id}/approve`,
         {},
         {
-          headers: {
-            'x-wallet-address': address || '',
-          },
+          headers: authHeaders,
         }
       );
 
@@ -223,6 +217,37 @@ export default function Admin() {
           <p className="text-slate-600">
             Please connect your wallet with admin privileges
           </p>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!signed) {
+    return (
+      <Layout>
+        <div className="max-w-4xl mx-auto text-center py-16">
+          <ShieldCheck className="w-16 h-16 mx-auto mb-4 text-slate-400" />
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Admin Authentication Required</h2>
+          <p className="text-slate-600 mb-6">
+            Sign a message with your wallet to prove you own this address.
+            The wallet must be in the ADMIN_WALLETS allowlist.
+          </p>
+          {authError && (
+            <p className="text-red-600 mb-6 text-sm">{authError}</p>
+          )}
+          <Button onClick={() => signIn()} disabled={signing}>
+            {signing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Waiting for signature...
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-4 h-4 mr-2" />
+                Sign in as Admin
+              </>
+            )}
+          </Button>
         </div>
       </Layout>
     );

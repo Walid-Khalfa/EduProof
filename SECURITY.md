@@ -59,7 +59,13 @@ SUPABASE_SERVICE_ROLE=<your-service-role-key>
 
 # Admin Authentication (Server-side only)
 ADMIN_API_KEY=<generate-secure-uuid>
+# Wallet admins must sign "EduProof Admin Auth: <unixSeconds>" (valid 5 min).
+# A bare x-wallet-address header is NEVER accepted by the server.
 ADMIN_WALLETS=0x123...,0xabc...
+
+# Blockchain on-chain verification (Server-side only)
+RPC_URL=https://dev-rpc.codenut.dev
+CERTIFICATE_CONTRACT=<deployed-certificate-contract-address>
 ```
 
 **CRITICAL:** Protect `.env.server`:

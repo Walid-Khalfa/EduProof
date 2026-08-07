@@ -3,6 +3,7 @@ pragma solidity ^0.8.29;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "./InstitutionRegistry.sol";
 
 /// @title EduProofCertificate
 /// @notice ERC-721 NFT contract for educational certificates with revocation capability
@@ -10,6 +11,10 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 contract EduProofCertificate is ERC721URIStorage, AccessControl {
     /// @notice Role identifier for institutions that can mint certificates
     bytes32 public constant INSTITUTION_ROLE = keccak256("INSTITUTION_ROLE");
+
+    /// @notice Registry of active institutions (optional; minting also allowed for
+    ///         addresses registered as active institutions in the registry)
+    InstitutionRegistry public registry;
 
     /// @notice Struct to store revocation information
     struct RevocationInfo {
@@ -47,8 +52,28 @@ contract EduProofCertificate is ERC721URIStorage, AccessControl {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
+    /// @notice Sets the institution registry used to authorize minting
+    /// @dev Only callable by the default admin; registry link is optional
+    /// @param registryAddress The address of the InstitutionRegistry contract
+    function setRegistry(address registryAddress) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(registryAddress != address(0), "EduProofCertificate: zero registry address");
+        registry = InstitutionRegistry(registryAddress);
+    }
+
+    /// @notice Checks whether an address is authorized to mint
+    /// @dev True if the address holds INSTITUTION_ROLE or is an active institution
+    ///      in the linked registry
+    /// @param account The address to check
+    /// @return True if the address is an authorized institution
+    function _isInstitution(address account) internal view returns (bool) {
+        if (hasRole(INSTITUTION_ROLE, account)) return true;
+        address registryAddress = address(registry);
+        if (registryAddress != address(0) && registry.isActive(account)) return true;
+        return false;
+    }
+
     /// @notice Mints a new certificate NFT
-    /// @dev Only callable by addresses with INSTITUTION_ROLE
+    /// @dev Only callable by addresses with INSTITUTION_ROLE or active registry institutions
     /// @param to The address to mint the certificate to
     /// @param tokenURI The URI containing certificate metadata
     /// @param studentHash The hash of the student's name for privacy
@@ -64,7 +89,8 @@ contract EduProofCertificate is ERC721URIStorage, AccessControl {
         string memory courseName,
         string memory institution,
         string memory issueDate
-    ) external onlyRole(INSTITUTION_ROLE) {
+    ) external {
+        require(_isInstitution(msg.sender), "EduProofCertificate: caller is not an active institution");
         require(to != address(0), "EduProofCertificate: mint to zero address");
         require(bytes(tokenURI).length > 0, "EduProofCertificate: empty tokenURI");
         require(studentHash != bytes32(0), "EduProofCertificate: invalid student hash");
@@ -98,7 +124,7 @@ contract EduProofCertificate is ERC721URIStorage, AccessControl {
     function revoke(uint256 tokenId, string memory reason) external {
         require(_ownerOf(tokenId) != address(0), "EduProofCertificate: token does not exist");
         require(
-            hasRole(INSTITUTION_ROLE, msg.sender) || ownerOf(tokenId) == msg.sender,
+            _isInstitution(msg.sender) || ownerOf(tokenId) == msg.sender,
             "EduProofCertificate: caller is not institution or owner"
         );
         require(!_revocations[tokenId].isRevoked, "EduProofCertificate: already revoked");

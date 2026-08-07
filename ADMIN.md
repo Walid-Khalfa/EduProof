@@ -6,7 +6,11 @@ This document describes the admin-only API endpoints for managing institutions i
 
 ## Authentication
 
-All admin endpoints require authentication via the `x-admin-key` header.
+All admin endpoints require authentication. Two methods are supported:
+
+### 1. API Key (recommended for automation)
+
+Send the key configured in `.env.server` via the `x-admin-key` header:
 
 ```bash
 x-admin-key: <ADMIN_API_KEY>
@@ -18,6 +22,30 @@ The `ADMIN_API_KEY` is configured in `.env.server` and should be a secure UUID o
 ```bash
 curl http://localhost:3001/api/admin/institutions \
   -H "x-admin-key: 5df7e6ce-2b4f-4e7c-9a3f-4a7efb2a6f6a"
+```
+
+### 2. Signed Wallet (used by the Admin dashboard)
+
+Wallets listed in `ADMIN_WALLETS` (comma-separated, `.env.server`) can authenticate by signing a short-lived message proving ownership:
+
+1. The frontend builds the message `EduProof Admin Auth: <unixSeconds>` and signs it with the wallet (`personal_sign`).
+2. Three headers are sent together:
+   ```bash
+   x-wallet-address: 0x...
+   x-message: EduProof Admin Auth: 1699999999
+   x-signature: 0x...
+   ```
+3. The server recovers the signer address from the signature and checks it against the allowlist. Signatures are valid for 5 minutes; a bare `x-wallet-address` header is **never** accepted.
+
+**Example:**
+```bash
+SIGNED_MESSAGE=$(date +%s)
+MESSAGE="EduProof Admin Auth: $SIGNED_MESSAGE"
+# Sign MESSAGE with your wallet (e.g. via cast wallet sign)
+curl http://localhost:3001/api/admin/institutions \
+  -H "x-wallet-address: 0xYourAdminWallet" \
+  -H "x-message: $MESSAGE" \
+  -H "x-signature: 0xSignedSignature"
 ```
 
 ---

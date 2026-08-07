@@ -403,6 +403,12 @@ curl "http://localhost:3001/api/certificates/availability?certId=CERT-2024-12345
 
 Index a newly minted certificate in the database.
 
+> **Security:** The `txHash` is **required** and is verified on-chain before the record is
+> accepted (receipt must exist, succeed, target the configured `CERTIFICATE_CONTRACT`,
+> and emit a `Minted` event matching the supplied `tokenId`/`owner`). Without on-chain
+> verification configured (`RPC_URL` + `CERTIFICATE_CONTRACT`), the endpoint returns
+> `503 CHAIN_NOT_CONFIGURED` in production and is bypassed in development only.
+
 **Request:**
 ```bash
 curl -X POST http://localhost:3001/api/certificates/index \
@@ -435,10 +441,10 @@ curl -X POST http://localhost:3001/api/certificates/index \
   institution: string;      // Institution name
   issueDate: string;        // ISO date string
   ownerAddress: string;     // Ethereum address (0x...)
-  tokenId: string;          // NFT token ID
+  tokenId: string;          // NFT token ID (verified on-chain; auto-filled from the receipt if omitted)
   metadataUri: string;      // IPFS metadata URI
   imageUri: string;         // IPFS image URI
-  txHash: string;           // Blockchain transaction hash
+  txHash: string;           // REQUIRED: Blockchain transaction hash (verified on-chain)
   verificationScore: number; // OCR confidence (0-100)
 }
 ```
@@ -457,6 +463,25 @@ curl -X POST http://localhost:3001/api/certificates/index \
 ```json
 {
   "error": "Missing required field: certId"
+}
+```
+
+**422 Unprocessable Entity** - On-chain verification failed
+```json
+{
+  "ok": false,
+  "error": "INVALID_TRANSACTION",
+  "message": "The transaction could not be verified on-chain",
+  "reason": "TOKEN_ID_MISMATCH"
+}
+```
+
+**503 Service Unavailable** - Chain not configured (production)
+```json
+{
+  "ok": false,
+  "error": "CHAIN_NOT_CONFIGURED",
+  "message": "On-chain verification is not configured on this server"
 }
 ```
 
@@ -520,6 +545,10 @@ curl http://localhost:3001/api/certificates/owner/0x742d35Cc6634C0532925a3b844Bc
 
 Verify a certificate by ID (searches database, falls back to blockchain).
 
+> **On-chain cross-check:** when the server is configured with `RPC_URL` and
+> `CERTIFICATE_CONTRACT`, the response also includes an `onChain` object that
+> verifies the token's existence, owner, and revocation status on the blockchain.
+
 **Query Parameters:**
 - `certId` (required) - Certificate ID to verify
 
@@ -547,6 +576,14 @@ curl "http://localhost:3001/api/certificates/verify?certId=CERT-2024-12345"
     "tx_hash": "0xabc123...",
     "verification_score": 93,
     "created_at": "2024-12-15T10:00:00.000Z"
+  },
+  "onChain": {
+    "verified": true,
+    "owner": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bfbE",
+    "status": "Active",
+    "contract": "0xd331b2dcfe70e5faaca44fb169536f51a503084e",
+    "tokenId": "1",
+    "chainId": 20258
   }
 }
 ```

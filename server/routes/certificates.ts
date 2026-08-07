@@ -2,9 +2,12 @@ import { Router, Request, Response } from "express";
 import { getSupabaseClient } from "../services/supabase";
 import { normalize } from "../utils/normalize";
 import { logger } from "../utils/logger";
+import { verifyMintTransaction, verifyTokenOnChain, ChainVerificationError, getChainConfig } from "../services/chain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const router = Router();
+
+const isProduction = process.env.NODE_ENV === "production";
 
 /**
  * Query blockchain for NFTs owned by an address (DISABLED FOR DEMO)
@@ -179,6 +182,7 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
 
     const institution = String(b.institution || "");
     const certId = String(b.certId || `${institution}-${Date.now()}`);
+    const txHash = String(b.txHash || "");
 
     const institutionN = normalize(institution);
     const certIdN = normalize(certId);
@@ -189,6 +193,55 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
         error: "MISSING_FIELDS",
         message: "Institution is required"
       });
+    }
+
+    if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+      return res.status(400).json({
+        ok: false,
+        error: "MISSING_TX_HASH",
+        message: "A valid transaction hash is required to index a certificate"
+      });
+    }
+
+    // Verify the mint transaction on-chain before trusting the payload.
+    // In production the API fails closed if the chain is not configured.
+    const chainConfig = getChainConfig();
+    if (chainConfig.configured) {
+      try {
+        const verification = await verifyMintTransaction(txHash, {
+          owner: b.owner ? String(b.owner) : undefined,
+          tokenId: b.tokenId ? String(b.tokenId) : undefined,
+        });
+        b.tokenId = verification.tokenId;
+        logger.debug("Mint transaction verified on-chain", {
+          txHash,
+          tokenId: verification.tokenId,
+          institution: verification.institution
+        });
+      } catch (e: any) {
+        if (e instanceof ChainVerificationError) {
+          logger.warn("Index rejected: on-chain verification failed", {
+            txHash,
+            reason: e.message
+          });
+          return res.status(422).json({
+            ok: false,
+            error: "INVALID_TRANSACTION",
+            message: "The transaction could not be verified on-chain",
+            reason: e.message
+          });
+        }
+        throw e;
+      }
+    } else if (isProduction) {
+      logger.error("Index rejected: chain not configured", { txHash });
+      return res.status(503).json({
+        ok: false,
+        error: "CHAIN_NOT_CONFIGURED",
+        message: "On-chain verification is not configured on this server"
+      });
+    } else {
+      logger.warn("Index accepted WITHOUT on-chain verification (development mode - RPC_URL/CERTIFICATE_CONTRACT not set)");
     }
 
     // Check for duplicate certificate based on OCR data
@@ -334,8 +387,7 @@ router.get("/api/certificates/owner/:address", async (req: Request, res: Respons
       });
     }
 
-    const address = req.params.address?.toLowerCase();
-    const source = req.query.source as string;
+    const address = String(req.params.address || "").toLowerCase();
 
     if (!address) {
       return res.status(400).json({
@@ -580,10 +632,40 @@ router.get("/api/certificates/verify", async (req: Request, res: Response) => {
       }
     } : data;
 
+    // Cross-check the certificate against the blockchain when chain is configured
+    let onChain: any = null;
+    const contractAddress = String(certificate.contract || "");
+    if (contractAddress && certificate.token_id !== null && certificate.token_id !== undefined && certificate.token_id !== "") {
+      try {
+        const chainResult = await verifyTokenOnChain(
+          certificate.token_id,
+          contractAddress,
+          certificate.owner || undefined
+        );
+        onChain = {
+          verified: chainResult.verified,
+          owner: chainResult.owner,
+          status: chainResult.status,
+          contract: contractAddress,
+          tokenId: certificate.token_id,
+          chainId: certificate.chain_id || null
+        };
+      } catch (e: any) {
+        if (e instanceof ChainVerificationError) {
+          logger.warn("verify: on-chain cross-check unavailable", { reason: e.message });
+          onChain = { verified: null, reason: e.message };
+        } else {
+          logger.error("verify: on-chain cross-check error", { error: e });
+          onChain = { verified: null, reason: "RPC_ERROR" };
+        }
+      }
+    }
+
     res.json({
       ok: true,
       found: true,
-      certificate
+      certificate,
+      onChain
     });
   } catch (e: any) {
     logger.error("certificates/verify error", { error: e });
