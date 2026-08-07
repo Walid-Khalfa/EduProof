@@ -6,15 +6,15 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Upload, AlertCircle, CheckCircle2, Loader2, X, Info, ExternalLink } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, X, ExternalLink } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, useChainId, usePublicClient } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
-import { useOCR, type OcrResult } from '@/hooks/useOCR';
+import { useOCR } from '@/hooks/useOCR';
 import { useToast } from '@/hooks/use-toast';
-import { eduProofCertificateAddress, eduProofCertificateABI, chainId } from '@/utils/chainConfig';
-import { keccak256, toBytes, encodeAbiParameters, parseAbiParameters } from 'viem';
+import { eduProofCertificateAddress, eduProofCertificateABI, chainId as expectedChainId } from '@/utils/chainConfig';
+import { keccak256, toBytes, encodeAbiParameters, parseAbiParameters, decodeEventLog, parseAbiItem } from 'viem';
 import { validateBytes32Fields, hexToBytes32, assertBytes32 } from '@/utils/bytes32';
+import { getEtherscanUrl } from '@/components/EtherscanLink';
 import axios from 'axios';
 import { Stepper } from '@/components/Stepper';
 import { PreflightChecks } from '@/components/PreflightChecks';
@@ -22,7 +22,6 @@ import { UploadArea } from '@/components/UploadArea';
 import { MintButton, type MintButtonState } from '@/components/MintButton';
 import { MintSuccessModal } from '@/components/MintSuccessModal';
 import { useMintFlowStore } from '@/stores/useMintFlowStore';
-import { useNavigate } from 'react-router-dom';
 import { copyToClipboard } from '@/utils/copyToClipboard';
 
 export default function Index() {
@@ -45,7 +44,6 @@ export default function Index() {
 function MintPageContent({ address, isConnected }: { address: string | undefined; isConnected: boolean }) {
   const chainId = useChainId();
   const { toast } = useToast();
-  const navigate = useNavigate();
   const runOCR = useOCR();
   
   // Zustand store
@@ -95,7 +93,7 @@ function MintPageContent({ address, isConnected }: { address: string | undefined
   }, [isConnected, setCheck]);
 
   useEffect(() => {
-    setCheck('onSepolia', chainId === sepolia.id);
+    setCheck('onCorrectChain', chainId === expectedChainId);
   }, [chainId, setCheck]);
 
   useEffect(() => {
@@ -237,9 +235,55 @@ function MintPageContent({ address, isConnected }: { address: string | undefined
       delete (window as any).__pendingMintTxHash;
       delete (window as any).__pendingMintData;
       
-      // Pour la démo: skip tokenId extraction (devnet logs vides)
+      // Extract tokenId from Minted event in transaction receipt logs
+      const mintedEvent = parseAbiItem('event Minted(uint256 indexed tokenId, address indexed institution, bytes32 studentHash, bytes32 certificateHash)');
+      
       const getTokenId = async (): Promise<string | null> => {
-        console.log('[mint] ⚠️ Skipping tokenId extraction (devnet limitation - empty logs)');
+        // Strategy 1: Try to decode the Minted event from receipt logs
+        if (receipt?.logs && receipt.logs.length > 0) {
+          try {
+            for (const log of receipt.logs) {
+              try {
+                const decoded = decodeEventLog({
+                  abi: [mintedEvent],
+                  topics: log.topics,
+                  data: log.data,
+                });
+                if (decoded.eventName === 'Minted') {
+                  const tokenId = (decoded.args as any)?.tokenId;
+                  if (tokenId !== undefined) {
+                    console.log('[mint] ✅ tokenId extracted from event:', tokenId);
+                    return String(tokenId);
+                  }
+                }
+              } catch {
+                // Skip logs that don't match
+              }
+            }
+          } catch (e) {
+            console.warn('[mint] Event decoding failed, falling back to totalSupply query', e);
+          }
+        }
+
+        // Strategy 2: Fallback - query totalSupply() and deduce tokenId
+        if (publicClient) {
+          try {
+            const totalSupply = await publicClient.readContract({
+              address: eduProofCertificateAddress,
+              abi: eduProofCertificateABI,
+              functionName: 'totalSupply',
+            });
+            if (totalSupply) {
+              const lastTokenId = Number(totalSupply) - 1;
+              console.log('[mint] ✅ tokenId deduced from totalSupply:', lastTokenId);
+              return String(lastTokenId);
+            }
+          } catch (e) {
+            console.warn('[mint] totalSupply query failed', e);
+          }
+        }
+
+        console.log('[mint] ⚠️ Could not determine tokenId - logging without it');
         return null;
       };
       
@@ -365,7 +409,7 @@ function MintPageContent({ address, isConnected }: { address: string | undefined
     setStep('index', { status: 'done' });
     
     // Show success toast with links
-    const etherscanUrl = `https://sepolia.etherscan.io/tx/${hash}`;
+    const etherscanUrl = getEtherscanUrl('tx', hash);
     
     toast({
       title: '🎉 Certificate Minted Successfully',
@@ -1073,7 +1117,7 @@ function MintPageContent({ address, isConnected }: { address: string | undefined
               walletOk={checks.walletConnected}
               institutionOk={checks.institutionOk}
               scoreOk={checks.ocrConfidence}
-              networkOk={checks.onSepolia}
+              networkOk={checks.onCorrectChain}
             />
           </div>
         </div>

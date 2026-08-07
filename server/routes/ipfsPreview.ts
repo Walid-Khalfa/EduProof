@@ -1,18 +1,15 @@
 import { Router, Request, Response } from 'express';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
-// IPFS gateways to try in order
 const GATEWAYS = [
   'https://gateway.pinata.cloud',
   'https://cloudflare-ipfs.com',
   'https://ipfs.io'
 ];
 
-// Strict CID validation (v0: Qm..., v1: baf...)
 const CID_REGEX = /^(Qm|baf)[A-Za-z0-9]+$/;
-
-// Timeout per gateway attempt (ms)
 const GATEWAY_TIMEOUT = 4000;
 
 interface GatewayAttempt {
@@ -23,20 +20,14 @@ interface GatewayAttempt {
   durationMs?: number;
 }
 
-/**
- * Validate CID format
- */
 function isValidCID(cid: string): boolean {
   return CID_REGEX.test(cid);
 }
 
-/**
- * Fetch with timeout
- */
-async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<globalThis.Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  
+
   try {
     const response = await fetch(url, {
       ...options,
@@ -50,12 +41,9 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   }
 }
 
-/**
- * Try to fetch SVG from a single gateway
- */
 async function tryGateway(gateway: string, cid: string): Promise<{
   success: boolean;
-  response?: Response;
+  response?: globalThis.Response;
   svg?: string;
   attempt: GatewayAttempt;
 }> {
@@ -64,9 +52,8 @@ async function tryGateway(gateway: string, cid: string): Promise<{
   const attempt: GatewayAttempt = { url };
 
   try {
-    console.log(`[ipfs.preview.try] url=${url}`);
+    logger.debug('IPFS preview gateway attempt', { url });
 
-    // First, try HEAD to check content-type without downloading
     const headStart = Date.now();
     const headResponse = await fetchWithTimeout(url, {
       method: 'HEAD',
@@ -75,10 +62,7 @@ async function tryGateway(gateway: string, cid: string): Promise<{
 
     attempt.headStatus = headResponse.status;
     attempt.headType = headResponse.headers.get('content-type') || undefined;
-    
-    console.log(`[ipfs.preview.try] HEAD status=${headResponse.status} type=${attempt.headType} time=${Date.now() - headStart}ms`);
 
-    // Check if HEAD succeeded and content-type is SVG
     if (headResponse.status !== 200) {
       attempt.error = `HEAD failed with status ${headResponse.status}`;
       return { success: false, attempt };
@@ -90,7 +74,6 @@ async function tryGateway(gateway: string, cid: string): Promise<{
       return { success: false, attempt };
     }
 
-    // Now GET the actual content
     const getStart = Date.now();
     const getResponse = await fetchWithTimeout(url, {
       method: 'GET',
@@ -105,16 +88,13 @@ async function tryGateway(gateway: string, cid: string): Promise<{
     const svg = await getResponse.text();
     attempt.durationMs = Date.now() - startTime;
 
-    console.log(`[ipfs.preview.try] GET bytes=${svg.length} time=${Date.now() - getStart}ms`);
-
-    // Validate SVG content starts with <svg
     if (!svg.trim().startsWith('<svg')) {
       attempt.error = 'Response does not start with <svg';
       return { success: false, attempt };
     }
 
-    console.log(`[ipfs.preview.ok] url=${url} bytes=${svg.length} time=${attempt.durationMs}ms`);
-    
+    logger.debug('IPFS preview gateway success', { url, bytes: svg.length, durationMs: attempt.durationMs });
+
     return {
       success: true,
       response: getResponse,
@@ -125,14 +105,11 @@ async function tryGateway(gateway: string, cid: string): Promise<{
   } catch (error: any) {
     attempt.error = error.message;
     attempt.durationMs = Date.now() - startTime;
-    console.error(`[ipfs.preview.err] url=${url} message="${error.message}"`);
+    logger.error('IPFS preview gateway error', { url, message: error.message });
     return { success: false, attempt };
   }
 }
 
-/**
- * Try all gateways in order until one succeeds
- */
 async function fetchFromGateways(cid: string): Promise<{
   success: boolean;
   svg?: string;
@@ -158,18 +135,12 @@ async function fetchFromGateways(cid: string): Promise<{
   return { success: false, attempts };
 }
 
-/**
- * GET /api/ipfs/preview/:cid.debug
- * Diagnostic endpoint that probes all gateways and returns detailed info
- * PUBLIC route - no authentication required
- */
 router.get('/preview/:cid.debug', async (req: Request, res: Response) => {
   const { cid } = req.params;
   const startTime = Date.now();
 
-  console.log(`[ipfs.preview.debug] cid=${cid}`);
+  logger.debug('IPFS preview debug', { cid });
 
-  // Validate CID
   if (!isValidCID(cid)) {
     return res.status(400).json({
       error: 'invalid_cid',
@@ -183,7 +154,6 @@ router.get('/preview/:cid.debug', async (req: Request, res: Response) => {
     const durationMs = Date.now() - startTime;
 
     if (result.success && result.svg) {
-      // Return diagnostic info (not the actual SVG)
       return res.json({
         cid,
         finalUrl: result.finalUrl,
@@ -195,7 +165,6 @@ router.get('/preview/:cid.debug', async (req: Request, res: Response) => {
         durationMs
       });
     } else {
-      // All gateways failed
       const lastAttempt = result.attempts[result.attempts.length - 1];
       return res.status(502).json({
         error: 'bad_gateway',
@@ -208,7 +177,7 @@ router.get('/preview/:cid.debug', async (req: Request, res: Response) => {
       });
     }
   } catch (error: any) {
-    console.error(`[ipfs.preview.debug.err] cid=${cid} message="${error.message}"`);
+    logger.error('IPFS preview debug error', { cid, message: error.message });
     return res.status(500).json({
       error: 'debug_error',
       message: error.message,
@@ -217,18 +186,12 @@ router.get('/preview/:cid.debug', async (req: Request, res: Response) => {
   }
 });
 
-/**
- * GET /api/ipfs/preview/:cid.svg
- * Proxy IPFS SVG previews with correct Content-Type and multi-gateway fallback
- * PUBLIC route - no authentication required
- */
 router.get('/preview/:cid.svg', async (req: Request, res: Response) => {
   const { cid } = req.params;
   const startTime = Date.now();
 
-  console.log(`[ipfs.preview] cid=${cid}`);
+  logger.debug('IPFS preview request', { cid });
 
-  // Validate CID
   if (!isValidCID(cid)) {
     return res.status(400).json({
       error: 'invalid_cid',
@@ -242,20 +205,18 @@ router.get('/preview/:cid.svg', async (req: Request, res: Response) => {
     const durationMs = Date.now() - startTime;
 
     if (result.success && result.svg) {
-      // Success - return SVG with proper headers
       res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
       res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300, stale-while-revalidate=60');
       res.setHeader('X-IPFS-Gateway', result.finalUrl || 'unknown');
       res.setHeader('X-Response-Time', `${durationMs}ms`);
-      
-      console.log(`[ipfs.preview.success] cid=${cid} url=${result.finalUrl} bytes=${result.svg.length} time=${durationMs}ms`);
-      
+
+      logger.debug('IPFS preview served', { cid, url: result.finalUrl, bytes: result.svg.length, durationMs });
+
       return res.send(result.svg);
     } else {
-      // All gateways failed
       const lastAttempt = result.attempts[result.attempts.length - 1];
-      console.error(`[ipfs.preview.failed] cid=${cid} attempts=${result.attempts.length} time=${durationMs}ms`);
-      
+      logger.warn('IPFS preview all gateways failed', { cid, attempts: result.attempts.length, durationMs });
+
       return res.status(502).json({
         error: 'bad_gateway',
         message: 'All IPFS gateways failed to retrieve SVG',
@@ -266,7 +227,7 @@ router.get('/preview/:cid.svg', async (req: Request, res: Response) => {
       });
     }
   } catch (error: any) {
-    console.error(`[ipfs.preview.err] cid=${cid} message="${error.message}" stack=${error.stack}`);
+    logger.error('IPFS preview proxy error', { cid, message: error.message, stack: error.stack });
     return res.status(500).json({
       error: 'preview_proxy_error',
       message: error.message,

@@ -1,41 +1,52 @@
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import componentTagger from './plugins/component-tagger';
 
-export default defineConfig({
-  plugins: [react(), componentTagger()],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
-  server: {
-    proxy: {
-      '/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:3001',
-        changeOrigin: true,
-        configure: (proxy, options) => {
-          proxy.on('error', (err, req, res) => {
-            console.log('Proxy error:', err);
-          });
-          proxy.on('proxyReq', (proxyReq, req, res) => {
-            console.log('Proxying:', req.method, req.url, '→', options.target);
-          });
-        },
+const isProduction = process.env.NODE_ENV === 'production';
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const apiUrl = env.VITE_API_URL || process.env.VITE_API_URL || 'http://localhost:3001';
+
+  return {
+    plugins: [react(), componentTagger()],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
       },
     },
-    hmr: {
-      overlay: false,
-      timeout: 15000,
+    define: {
+      __APP_VERSION__: JSON.stringify('1.0.0'),
     },
-    watch: {
-      // Use polling instead of native file system events (more reliable for some environments)
-      usePolling: true,
-      // Wait 500ms before triggering a rebuild (gives time for all files to be flushed)
-      interval: 500,
-      // Additional delay between file change detection and reload
-      binaryInterval: 500,
+    build: {
+      target: 'es2022',
+      minify: 'terser',
+      terserOptions: {
+        compress: {
+          drop_console: isProduction,
+          drop_debugger: isProduction,
+          pure_funcs: isProduction ? ['console.log', 'console.warn', 'console.info'] : [],
+        },
+      },
+      sourcemap: !isProduction,
     },
-  },
+    server: {
+      proxy: {
+        '/api': {
+          target: apiUrl,
+          changeOrigin: true,
+        },
+      },
+      hmr: {
+        overlay: false,
+        timeout: 15000,
+      },
+      watch: {
+        usePolling: true,
+        interval: 500,
+        binaryInterval: 500,
+      },
+    },
+  };
 });

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getSupabaseClient, checkDbConnection } from '../services/supabase';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -40,7 +41,7 @@ router.get('/api/health', async (req: Request, res: Response) => {
       },
     });
   } catch (error: any) {
-    console.error('❌ [Health Check Error]:', error);
+    logger.error('Health check error', { error: error.message });
     res.status(500).json({
       ok: false,
       error: error.message || 'Health check failed',

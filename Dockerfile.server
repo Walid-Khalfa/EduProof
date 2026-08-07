@@ -1,0 +1,33 @@
+# Use slim Node.js image as base
+FROM node:20-alpine AS base
+
+# Set working directory
+WORKDIR /app/server
+
+# Copy server package files for dependency caching
+COPY server/package.json server/pnpm-lock.yaml* ./
+RUN corepack enable pnpm && corepack prepare pnpm@latest --activate
+
+# Install server dependencies (production only)
+RUN pnpm install --frozen-lockfile --prod
+
+# Copy server source and build
+COPY server/ ./
+
+# Build TypeScript
+RUN pnpm run build
+
+# --- Production Server ---
+FROM node:20-alpine AS server-prod
+
+WORKDIR /app/server
+COPY --from=base /app/server/node_modules ./node_modules
+COPY --from=base /app/server/dist ./dist
+COPY server/.env.server.example ./.env.server.example
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=60s --timeout=10s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://localhost:3001/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
+
+CMD ["node", "dist/index.js"]

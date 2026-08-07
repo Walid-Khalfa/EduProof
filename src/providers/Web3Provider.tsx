@@ -1,13 +1,13 @@
 import '@rainbow-me/rainbowkit/styles.css';
 import { getDefaultConfig, RainbowKitProvider, lightTheme } from '@rainbow-me/rainbowkit';
 import { WagmiProvider } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
+import { wagmiChain } from '@/utils/chainConfig';
 
 const config = getDefaultConfig({
   appName: 'EduProof',
   projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'YOUR_WALLETCONNECT_PROJECT_ID',
-  chains: [sepolia],
+  chains: [wagmiChain],
   ssr: false,
 });
 

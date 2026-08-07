@@ -20,7 +20,7 @@ export interface MintFlowChecks {
   walletConnected: boolean;
   institutionOk: boolean;
   ocrConfidence: boolean;
-  onSepolia: boolean;
+  onCorrectChain: boolean;
 }
 
 export interface MintFlowState {
@@ -71,7 +71,7 @@ const initialChecks: MintFlowChecks = {
   walletConnected: false,
   institutionOk: false,
   ocrConfidence: false,
-  onSepolia: false,
+       onCorrectChain: false,
 };
 
 const initialSteps: Record<StepKey, StepState> = {
@@ -161,7 +161,7 @@ export const useMintFlowStore = create<MintFlowState>((set, get) => ({
       checks: {
         ...initialChecks,
         walletConnected: state.checks.walletConnected,
-        onSepolia: state.checks.onSepolia,
+         onCorrectChain: state.checks.onCorrectChain,
       },
       ocrResult: null,
       verificationScore: null,

@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import { logger } from '../utils/logger';
 
 const router = Router();
-const upload = multer({ 
+const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: Number(process.env.MAX_UPLOAD_MB || 15) * 1024 * 1024 }
 });
@@ -27,24 +28,23 @@ const need = (name: string) => {
 function pickVisionModel(input?: string) {
   const candidates = [
     input,
-    'gemini-1.5-flash-latest',   // latest stable flash multimodal
-    'gemini-1.5-flash-002',       // specific stable version
-    'gemini-1.5-pro-latest'       // pro fallback
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash-002',
+    'gemini-1.5-pro-latest'
   ].filter(Boolean) as string[];
-  // Exclude image generation models that aren't for OCR
   return candidates.find(m => !/flash-image/i.test(m))!;
 }
 
 router.post('/api/ocr', upload.single('file'), async (req: Request, res: Response) => {
   try {
-    console.log('=== OCR Request Started ===');
-    console.log('File present:', req.file ? 'Yes' : 'No');
-    
+    logger.info('OCR Request started');
+    logger.debug('File present', { hasFile: req.file ? 'Yes' : 'No' });
+
     if (!req.file) {
       return res.status(400).json({ error: 'Missing file (field "file")' });
     }
 
-    console.log('File details:', {
+    logger.info('File details', {
       mimetype: req.file.mimetype,
       size: req.file.size,
       originalname: req.file.originalname
@@ -59,7 +59,7 @@ router.post('/api/ocr', upload.single('file'), async (req: Request, res: Respons
     const MODEL = pickVisionModel(REQ_MODEL);
     const TIMEOUT = Number(process.env.GEMINI_TIMEOUT_MS || 30000);
 
-    console.log('Using model:', MODEL);
+    logger.debug('Using model', { model: MODEL });
 
     const base64 = req.file.buffer.toString('base64');
 
@@ -94,11 +94,11 @@ Rules:
         role: 'user',
         parts: [
           { text: `${system}\n\n${user}` },
-          { 
-            inlineData: { 
-              mimeType: req.file.mimetype, 
-              data: base64 
-            } 
+          {
+            inlineData: {
+              mimeType: req.file.mimetype,
+              data: base64
+            }
           }
         ]
       }],
@@ -111,11 +111,11 @@ Rules:
 
     async function callGemini(model: string) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(API_KEY)}`;
-      console.log('Calling Gemini API with model:', model);
-      
+      logger.debug('Calling Gemini API', { model });
+
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), TIMEOUT);
-      
+
       try {
         const r = await fetch(url, {
           method: 'POST',
@@ -123,125 +123,115 @@ Rules:
           body: JSON.stringify(body),
           signal: controller.signal
         });
-        
+
         const txt = await r.text();
-        console.log('Gemini response status:', r.status);
-        
+        logger.debug('Gemini response status', { status: r.status });
+
         if (!r.ok) {
           let details: any;
-          try { 
-            details = JSON.parse(txt); 
-          } catch { 
-            details = txt; 
+          try {
+            details = JSON.parse(txt);
+          } catch {
+            details = txt;
           }
-          console.error('Gemini API error:', details);
+          logger.error('Gemini API error', { error: details });
           return { ok: false, status: r.status, details };
         }
-        
+
         return { ok: true, txt };
       } finally {
         clearTimeout(timeout);
       }
     }
 
-    // Try configured model, then fallbacks
     const tryModels = [MODEL, 'gemini-1.5-flash-002', 'gemini-1.5-pro-latest'];
     let resp: any;
-    
+
     for (const m of tryModels) {
       resp = await callGemini(m);
-      if (resp.ok) { 
-        console.log('Successfully used model:', m);
-        break; 
-      }
-      
-      // If error indicates model issue, try next
-      const msg = JSON.stringify(resp.details || {});
-      if (!/model|unsupported|image/i.test(msg)) {
-        console.error('Non-model error, stopping fallback:', msg);
+      if (resp.ok) {
+        logger.debug('Successfully used model', { model: m });
         break;
       }
-      console.log('Model failed, trying next fallback...');
+
+      const msg = JSON.stringify(resp.details || {});
+      if (!/model|unsupported|image/i.test(msg)) {
+        logger.error('Non-model error, stopping fallback', { error: msg });
+        break;
+      }
+      logger.debug('Model failed, trying next fallback');
     }
 
     if (!resp.ok) {
       const s = resp.status === 400 ? 502 : resp.status || 500;
-      return res.status(s).json({ 
-        error: 'Gemini HTTP error', 
-        details: resp.details 
+      return res.status(s).json({
+        error: 'Gemini HTTP error',
+        details: resp.details
       });
     }
 
     const txt: string = resp.txt;
-    console.log('Gemini raw response (first 500 chars):', txt.substring(0, 500));
+    logger.debug('Gemini raw response received', { length: txt.substring(0, 500) });
 
     let out: any;
     try {
       const json = JSON.parse(txt);
       const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-      
+
       if (!raw) {
-        return res.status(502).json({ 
-          error: 'Empty Gemini content', 
-          raw: json 
+        return res.status(502).json({
+          error: 'Empty Gemini content',
+          raw: json
         });
       }
 
-      try { 
-        out = JSON.parse(raw); 
+      try {
+        out = JSON.parse(raw);
       } catch {
-        // Fallback: extract JSON from text
         const i = raw.indexOf('{');
         const j = raw.lastIndexOf('}');
-        
+
         if (i === -1 || j === -1) {
-          return res.status(502).json({ 
-            error: 'Gemini did not return JSON', 
-            raw 
+          return res.status(502).json({
+            error: 'Gemini did not return JSON',
+            raw
           });
         }
-        
+
         out = JSON.parse(raw.slice(i, j + 1));
       }
     } catch {
-      try { 
-        out = JSON.parse(txt); 
-      } catch { 
-        return res.status(502).json({ 
-          error: 'Unparseable Gemini response', 
-          raw: txt 
-        }); 
+      try {
+        out = JSON.parse(txt);
+      } catch {
+        return res.status(502).json({
+          error: 'Unparseable Gemini response',
+          raw: txt
+        });
       }
     }
 
-    // Import verification utilities
     const { inferVerificationUrl, extractUrlFromText } = await import('../utils/verificationSources.js');
 
-    // Extract verification URL using 3-tier strategy
     let verificationUrl = out?.verification_url && out.verification_url.length > 0 ? out.verification_url : undefined;
 
-    // Tier 1: Already extracted from OCR JSON (handled above)
-    
-    // Tier 2: Regex fallback - extract from raw OCR text if available
     if (!verificationUrl && txt) {
       const extracted = extractUrlFromText(txt);
       if (extracted) {
-        console.log('Extracted URL via regex:', extracted);
+        logger.debug('Extracted URL via regex', { url: extracted });
         verificationUrl = extracted;
       }
     }
 
-    // Tier 3: Institution mapping with certificate ID
     if (!verificationUrl) {
       const certId = out?.certificate_id || undefined;
       const inferred = inferVerificationUrl(out?.institution || '', certId);
       if (inferred) {
-        console.log('Inferred URL via institution mapping:', inferred);
+        logger.debug('Inferred URL via institution mapping', { url: inferred });
         verificationUrl = inferred;
       }
     }
 
-    // Calculate confidence score
     const fc = out?.fields_confidence || {};
     const score = (
       ['student_name', 'course_name', 'institution', 'issue_date']
@@ -249,27 +239,26 @@ Rules:
         .reduce((a, b) => a + b, 0) / 4
     ) * 100;
 
-    console.log('OCR completed successfully, score:', Math.round(score));
-    console.log('Verification URL:', verificationUrl || 'none');
-    console.log('=== OCR Request Completed ===');
+    logger.info('OCR completed', {
+      score: Math.round(score),
+      hasVerificationUrl: !!verificationUrl
+    });
 
-    return res.json({ 
+    return res.json({
       ...out,
       verification_url: verificationUrl || '',
-      verification_score: Math.round(score) 
+      verification_score: Math.round(score)
     });
 
   } catch (error: any) {
-    console.error('=== OCR ERROR ===');
-    console.error('Error type:', error.constructor.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    if (error.details) {
-      console.error('Error details:', JSON.stringify(error.details, null, 2));
-    }
-    console.error('=== END OCR ERROR ===');
-    
-    return res.status(500).json({ 
+    logger.error('OCR error', {
+      errorType: error?.constructor?.name,
+      errorMessage: error?.message,
+      stack: error?.stack,
+      details: error.details
+    });
+
+    return res.status(500).json({
       error: String(error?.message || error),
       ...(error.details && { details: error.details })
     });

@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { Home, Award, Compass, CheckCircle, Settings, Menu, X, Moon, Sun, Monitor, LogOut, Copy, Wallet } from 'lucide-react';
+import { Home, Award, CheckCircle, Settings, Menu, X, Moon, Sun, Monitor, LogOut, Copy, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { NetworkPill } from '@/components/NetworkPill';
@@ -67,7 +67,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
             {/* Desktop Actions */}
             <div className="hidden md:flex items-center gap-3">
-              <NetworkPill requiredNetwork="sepolia" />
+              <NetworkPill />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -283,7 +283,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               })}
             </nav>
             <div className="px-4 pb-4 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-3">
-              <NetworkPill requiredNetwork="sepolia" />
+              <NetworkPill />
               <ConnectButton.Custom>
                 {({
                   account,

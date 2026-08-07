@@ -39,8 +39,8 @@ const checks = [
   },
   {
     key: 'networkOk',
-    label: 'Connected to Sepolia',
-    tooltip: 'Switch to Sepolia testnet to mint certificates',
+    label: 'Connected to correct network',
+    tooltip: 'Switch to the configured network (DevNet) to mint certificates',
     optional: true,
   },
 ];

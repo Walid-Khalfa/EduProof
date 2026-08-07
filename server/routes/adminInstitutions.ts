@@ -2,16 +2,12 @@ import express from 'express';
 import { requireAdmin } from '../utils/requireAdmin';
 import { getSupabaseClient } from '../services/supabase';
 import { normalize } from '../utils/normalize';
+import { logger } from '../utils/logger';
 
 const router = express.Router();
 
-// Apply admin middleware to all routes
 router.use(requireAdmin);
 
-/**
- * GET /api/admin/institutions
- * List institutions with pagination, search, and filtering
- */
 router.get('/api/admin/institutions', async (req, res) => {
   try {
     const { search, status, limit = '10', offset = '0' } = req.query;
@@ -19,8 +15,10 @@ router.get('/api/admin/institutions', async (req, res) => {
     const offsetNum = parseInt(offset as string, 10);
 
     const supabase = getSupabaseClient();
+    if (!supabase) {
+      return res.status(503).json({ ok: false, error: 'DATABASE_NOT_CONFIGURED', message: 'Database service is not available' });
+    }
 
-    // Build query for items
     let query = supabase
       .from('institutions')
       .select(`
@@ -35,7 +33,6 @@ router.get('/api/admin/institutions', async (req, res) => {
       .order('created_at', { ascending: false })
       .range(offsetNum, offsetNum + limitNum - 1);
 
-    // Apply filters
     if (status && typeof status === 'string') {
       query = query.eq('status', status);
     }
@@ -47,11 +44,10 @@ router.get('/api/admin/institutions', async (req, res) => {
     const { data: items, error: itemsError } = await query;
 
     if (itemsError) {
-      console.error('Error fetching institutions:', itemsError);
+      logger.error('Failed to fetch institutions', { error: itemsError.message });
       return res.status(500).json({ error: 'server_error', message: itemsError.message });
     }
 
-    // Get total count with same filters
     let countQuery = supabase
       .from('institutions')
       .select('id', { count: 'exact', head: true });
@@ -67,11 +63,10 @@ router.get('/api/admin/institutions', async (req, res) => {
     const { count, error: countError } = await countQuery;
 
     if (countError) {
-      console.error('Error counting institutions:', countError);
+      logger.error('Failed to count institutions', { error: countError.message });
       return res.status(500).json({ error: 'server_error', message: countError.message });
     }
 
-    // Get certificates count for each institution
     const institutionIds = items?.map(i => i.id) || [];
     const { data: certCounts, error: certError } = await supabase
       .from('certificates')
@@ -79,17 +74,15 @@ router.get('/api/admin/institutions', async (req, res) => {
       .in('institution_id', institutionIds);
 
     if (certError) {
-      console.error('Error fetching certificate counts:', certError);
+      logger.warn('Failed to fetch certificate counts', { error: certError.message });
     }
 
-    // Count certificates per institution
     const certCountMap = new Map<string, number>();
     certCounts?.forEach(cert => {
       const current = certCountMap.get(cert.institution_id) || 0;
       certCountMap.set(cert.institution_id, current + 1);
     });
 
-    // Merge certificate counts into items
     const itemsWithCounts = items?.map(inst => ({
       id: inst.id,
       name: inst.name,
@@ -108,20 +101,15 @@ router.get('/api/admin/institutions', async (req, res) => {
       offset: offsetNum
     });
   } catch (err: any) {
-    console.error('Unexpected error in GET /api/admin/institutions:', err);
+    logger.error('Unexpected error in GET /api/admin/institutions', { error: err.message, stack: err.stack });
     return res.status(500).json({ error: 'server_error', message: err.message });
   }
 });
 
-/**
- * POST /api/admin/institutions
- * Create a new institution
- */
 router.post('/api/admin/institutions', async (req, res) => {
   try {
     const { name, wallet, didUri, min_score = 70, status = 'approved' } = req.body;
 
-    // Validation
     if (!name || typeof name !== 'string') {
       return res.status(400).json({ error: 'invalid_payload', message: 'name is required' });
     }
@@ -140,8 +128,10 @@ router.post('/api/admin/institutions', async (req, res) => {
 
     const name_normalized = normalize(name);
     const supabase = getSupabaseClient();
+    if (!supabase) {
+      return res.status(503).json({ ok: false, error: 'DATABASE_NOT_CONFIGURED', message: 'Database service is not available' });
+    }
 
-    // Check for duplicate
     const { data: existing, error: checkError } = await supabase
       .from('institutions')
       .select('id')
@@ -152,7 +142,6 @@ router.post('/api/admin/institutions', async (req, res) => {
       return res.status(409).json({ error: 'duplicate_institution', message: 'Institution with this name already exists' });
     }
 
-    // Insert new institution
     const { data, error } = await supabase
       .from('institutions')
       .insert({
@@ -167,10 +156,10 @@ router.post('/api/admin/institutions', async (req, res) => {
       .single();
 
     if (error) {
-      console.error('Error creating institution:', error);
       if (error.code === '23505') {
         return res.status(409).json({ error: 'duplicate_institution', message: 'Institution already exists' });
       }
+      logger.error('Failed to create institution', { error: error.message });
       return res.status(500).json({ error: 'server_error', message: error.message });
     }
 
@@ -187,15 +176,11 @@ router.post('/api/admin/institutions', async (req, res) => {
       }
     });
   } catch (err: any) {
-    console.error('Unexpected error in POST /api/admin/institutions:', err);
+    logger.error('Unexpected error in POST /api/admin/institutions', { error: err.message, stack: err.stack });
     return res.status(500).json({ error: 'server_error', message: err.message });
   }
 });
 
-/**
- * PATCH /api/admin/institutions/:id
- * Update an institution
- */
 router.patch('/api/admin/institutions/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -238,6 +223,9 @@ router.patch('/api/admin/institutions/:id', async (req, res) => {
     }
 
     const supabase = getSupabaseClient();
+    if (!supabase) {
+      return res.status(503).json({ ok: false, error: 'DATABASE_NOT_CONFIGURED', message: 'Database service is not available' });
+    }
 
     const { data, error } = await supabase
       .from('institutions')
@@ -247,13 +235,13 @@ router.patch('/api/admin/institutions/:id', async (req, res) => {
       .single();
 
     if (error) {
-      console.error('Error updating institution:', error);
       if (error.code === 'PGRST116') {
         return res.status(404).json({ error: 'not_found', message: 'Institution not found' });
       }
       if (error.code === '23505') {
         return res.status(409).json({ error: 'duplicate_institution', message: 'Institution name already exists' });
       }
+      logger.error('Failed to update institution', { error: error.message });
       return res.status(500).json({ error: 'server_error', message: error.message });
     }
 
@@ -270,19 +258,18 @@ router.patch('/api/admin/institutions/:id', async (req, res) => {
       }
     });
   } catch (err: any) {
-    console.error('Unexpected error in PATCH /api/admin/institutions/:id:', err);
+    logger.error('Unexpected error in PATCH /api/admin/institutions/:id', { error: err.message, stack: err.stack });
     return res.status(500).json({ error: 'server_error', message: err.message });
   }
 });
 
-/**
- * POST /api/admin/institutions/:id/revoke
- * Revoke an institution
- */
 router.post('/api/admin/institutions/:id/revoke', async (req, res) => {
   try {
     const { id } = req.params;
     const supabase = getSupabaseClient();
+    if (!supabase) {
+      return res.status(503).json({ ok: false, error: 'DATABASE_NOT_CONFIGURED', message: 'Database service is not available' });
+    }
 
     const { data, error } = await supabase
       .from('institutions')
@@ -292,28 +279,27 @@ router.post('/api/admin/institutions/:id/revoke', async (req, res) => {
       .single();
 
     if (error) {
-      console.error('Error revoking institution:', error);
       if (error.code === 'PGRST116') {
         return res.status(404).json({ error: 'not_found', message: 'Institution not found' });
       }
+      logger.error('Failed to revoke institution', { error: error.message });
       return res.status(500).json({ error: 'server_error', message: error.message });
     }
 
     return res.json({ ok: true, status: data.status });
   } catch (err: any) {
-    console.error('Unexpected error in POST /api/admin/institutions/:id/revoke:', err);
+    logger.error('Unexpected error in POST /api/admin/institutions/:id/revoke', { error: err.message, stack: err.stack });
     return res.status(500).json({ error: 'server_error', message: err.message });
   }
 });
 
-/**
- * POST /api/admin/institutions/:id/approve
- * Approve an institution
- */
 router.post('/api/admin/institutions/:id/approve', async (req, res) => {
   try {
     const { id } = req.params;
     const supabase = getSupabaseClient();
+    if (!supabase) {
+      return res.status(503).json({ ok: false, error: 'DATABASE_NOT_CONFIGURED', message: 'Database service is not available' });
+    }
 
     const { data, error } = await supabase
       .from('institutions')
@@ -323,16 +309,16 @@ router.post('/api/admin/institutions/:id/approve', async (req, res) => {
       .single();
 
     if (error) {
-      console.error('Error approving institution:', error);
       if (error.code === 'PGRST116') {
         return res.status(404).json({ error: 'not_found', message: 'Institution not found' });
       }
+      logger.error('Failed to approve institution', { error: error.message });
       return res.status(500).json({ error: 'server_error', message: error.message });
-      }
+    }
 
     return res.json({ ok: true, status: data.status });
   } catch (err: any) {
-    console.error('Unexpected error in POST /api/admin/institutions/:id/approve:', err);
+    logger.error('Unexpected error in POST /api/admin/institutions/:id/approve', { error: err.message, stack: err.stack });
     return res.status(500).json({ error: 'server_error', message: err.message });
   }
 });

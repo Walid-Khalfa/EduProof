@@ -2,9 +2,10 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import crypto from 'crypto';
 import { buildPdfPreviewSVG } from '../utils/pdfPreviewSvg';
+import { logger } from '../utils/logger';
 
 const router = Router();
-const upload = multer({ 
+const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: Number(process.env.MAX_UPLOAD_MB || 15) * 1024 * 1024 }
 });
@@ -35,20 +36,20 @@ const need = (name: string) => {
  */
 router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request, res: Response) => {
   try {
-    console.log('=== IPFS Media Upload Started ===');
-    
+    logger.info('IPFS Media Upload started');
+
     if (!req.file) {
       return res.status(400).json({ error: 'Missing file (field "file")' });
     }
 
-    console.log('Media file:', {
+    logger.info('Media file received', {
       mimetype: req.file.mimetype,
       size: req.file.size,
       originalname: req.file.originalname
     });
 
     if (!ALLOWED_MEDIA_TYPES.has(req.file.mimetype)) {
-      return res.status(415).json({ 
+      return res.status(415).json({
         error: `Unsupported media type: ${req.file.mimetype}`,
         allowed: Array.from(ALLOWED_MEDIA_TYPES)
       });
@@ -61,13 +62,11 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
     let previewBuffer: Buffer | null = null;
     let previewMime: string | undefined;
 
-    // Generate SVG preview for PDFs
     if (isPdf) {
-      console.log('Generating SVG preview for PDF...');
+      logger.debug('Generating SVG preview for PDF');
       try {
-        // Extract OCR fields from request body if provided
         const ocrFields = req.body ? JSON.parse(req.body.ocrFields || '{}') : {};
-        
+
         const svgString = buildPdfPreviewSVG({
           institution: ocrFields.institution,
           student: ocrFields.student,
@@ -76,24 +75,22 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
           width: 1200,
           height: 675
         });
-        
+
         previewBuffer = Buffer.from(svgString, 'utf8');
         previewMime = 'image/svg+xml';
-        console.log('SVG preview generated successfully');
+        logger.debug('SVG preview generated successfully');
       } catch (error: any) {
-        console.error('SVG preview generation failed:', error);
-        return res.status(422).json({ 
+        logger.error('SVG preview generation failed', { error: error.message });
+        return res.status(422).json({
           error: 'Failed to generate SVG preview',
           details: error.message
         });
       }
     }
 
-    // Compute SHA-256 hash of original file (returns 64 hex chars without 0x prefix)
     const sha256 = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
-    console.log('File SHA-256 (hex64):', sha256, 'length:', sha256.length);
+    logger.debug('File SHA-256 computed', { length: sha256.length });
 
-    // Upload helper function
     async function uploadToIPFS(buffer: Buffer, filename: string, fileType: string) {
       const formData = new FormData();
       const blob = new Blob([buffer], { type: req.file!.mimetype });
@@ -120,7 +117,7 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
       const uploadText = await uploadRes.text();
       if (!uploadRes.ok) {
         let errorDetails: any;
-        try { errorDetails = JSON.parse(uploadText); } 
+        try { errorDetails = JSON.parse(uploadText); }
         catch { errorDetails = uploadText; }
         throw new Error(`Pinata upload failed: ${JSON.stringify(errorDetails)}`);
       }
@@ -128,30 +125,28 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
       return JSON.parse(uploadText);
     }
 
-    // Upload original file
-    console.log('Uploading original file to Pinata...');
+    logger.info('Uploading original file to Pinata');
     const uploadData = await uploadToIPFS(
-      req.file.buffer, 
-      req.file.originalname, 
+      req.file.buffer,
+      req.file.originalname,
       isPdf ? 'certificate-pdf' : 'certificate-image'
     );
     const cid = uploadData.IpfsHash;
     const url = `https://${PINATA_GATEWAY}/ipfs/${cid}`;
-    console.log('Original file uploaded:', cid);
+    logger.info('Original file uploaded', { cid });
 
-    // Upload preview if PDF
     let previewCid: string | undefined;
     let previewUrl: string | undefined;
     if (previewBuffer) {
-      console.log('Uploading SVG preview to Pinata...');
+      logger.info('Uploading SVG preview to Pinata');
       const previewName = req.file.originalname.replace(/\.pdf$/i, '-preview.svg');
       const previewData = await uploadToIPFS(previewBuffer, previewName, 'certificate-preview');
       previewCid = previewData.IpfsHash;
       previewUrl = `https://${PINATA_GATEWAY}/ipfs/${previewCid}`;
-      console.log('SVG preview uploaded:', previewCid);
+      logger.info('SVG preview uploaded', { previewCid });
     }
 
-    console.log('=== IPFS Media Upload Completed ===');
+    logger.info('IPFS Media Upload completed');
 
     return res.json({
       ok: true,
@@ -166,12 +161,8 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
     });
 
   } catch (error: any) {
-    console.error('=== IPFS Media Upload ERROR ===');
-    console.error('Error:', error.message);
-    console.error('Stack:', error.stack);
-    console.error('=== END ERROR ===');
-    
-    return res.status(500).json({ 
+    logger.error('IPFS Media Upload error', { error: error.message, stack: error.stack });
+    return res.status(500).json({
       ok: false,
       error: String(error?.message || error)
     });
@@ -181,8 +172,8 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
 // Legacy endpoint for backward compatibility
 router.post('/api/ipfs/upload-image', upload.single('file'), async (req: Request, res: Response) => {
   try {
-    console.log('=== IPFS Image Upload (Legacy) - Redirecting to /upload-media ===');
-    
+    logger.info('IPFS Image Upload (Legacy) - Redirecting to /upload-media');
+
     if (!req.file) {
       return res.status(400).json({ error: 'Missing file (field "file")' });
     }
@@ -190,12 +181,10 @@ router.post('/api/ipfs/upload-image', upload.single('file'), async (req: Request
     const PINATA_JWT = need('PINATA_JWT');
     const PINATA_GATEWAY = process.env.PINATA_GATEWAY || 'gateway.pinata.cloud';
 
-    // Create FormData for Pinata upload
     const formData = new FormData();
     const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
     formData.append('file', blob, req.file.originalname);
 
-    // Optional: Add metadata
     const metadata = JSON.stringify({
       name: req.file.originalname,
       keyvalues: {
@@ -205,32 +194,24 @@ router.post('/api/ipfs/upload-image', upload.single('file'), async (req: Request
     });
     formData.append('pinataMetadata', metadata);
 
-    const options = JSON.stringify({
-      cidVersion: 1
-    });
+    const options = JSON.stringify({ cidVersion: 1 });
     formData.append('pinataOptions', options);
 
-    console.log('Uploading to Pinata...');
+    logger.info('Uploading to Pinata');
     const uploadRes = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${PINATA_JWT}`
-      },
+      headers: { 'Authorization': `Bearer ${PINATA_JWT}` },
       body: formData
     });
 
     const uploadText = await uploadRes.text();
-    console.log('Pinata response status:', uploadRes.status);
 
     if (!uploadRes.ok) {
       let errorDetails: any;
-      try {
-        errorDetails = JSON.parse(uploadText);
-      } catch {
-        errorDetails = uploadText;
-      }
-      console.error('Pinata upload error:', errorDetails);
-      return res.status(uploadRes.status).json({ 
+      try { errorDetails = JSON.parse(uploadText); }
+      catch { errorDetails = uploadText; }
+      logger.error('Pinata upload error', { error: errorDetails });
+      return res.status(uploadRes.status).json({
         error: 'Pinata upload failed',
         details: errorDetails
       });
@@ -240,8 +221,7 @@ router.post('/api/ipfs/upload-image', upload.single('file'), async (req: Request
     const ipfsHash = uploadData.IpfsHash;
     const ipfsUrl = `https://${PINATA_GATEWAY}/ipfs/${ipfsHash}`;
 
-    console.log('Image uploaded successfully:', ipfsHash);
-    console.log('=== IPFS Image Upload Completed ===');
+    logger.info('Image uploaded successfully', { ipfsHash });
 
     return res.json({
       ipfsHash,
@@ -251,12 +231,8 @@ router.post('/api/ipfs/upload-image', upload.single('file'), async (req: Request
     });
 
   } catch (error: any) {
-    console.error('=== IPFS Image Upload ERROR ===');
-    console.error('Error:', error.message);
-    console.error('Stack:', error.stack);
-    console.error('=== END ERROR ===');
-    
-    return res.status(500).json({ 
+    logger.error('IPFS Image Upload error', { error: error.message, stack: error.stack });
+    return res.status(500).json({
       error: String(error?.message || error)
     });
   }
@@ -270,34 +246,31 @@ router.post('/api/ipfs/upload-image', upload.single('file'), async (req: Request
  */
 router.post('/api/ipfs/upload-metadata', async (req: Request, res: Response) => {
   try {
-    console.log('=== IPFS Metadata Upload Started ===');
-    
+    logger.info('IPFS Metadata Upload started');
+
     if (!req.body || typeof req.body !== 'object') {
       return res.status(400).json({ error: 'Missing or invalid JSON body' });
     }
 
-    console.log('Metadata keys:', Object.keys(req.body));
+    logger.debug('Metadata keys', { keys: Object.keys(req.body) });
 
     const PINATA_JWT = need('PINATA_JWT');
     const PINATA_GATEWAY = process.env.PINATA_GATEWAY || 'gateway.pinata.cloud';
 
-    // Validate ERC-721 metadata structure
     const metadata = req.body;
     if (!metadata.name || !metadata.description || !metadata.image) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Invalid ERC-721 metadata: missing required fields (name, description, image)',
         received: Object.keys(metadata)
       });
     }
 
-    // Create JSON blob
     const jsonString = JSON.stringify(metadata, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });
 
     const formData = new FormData();
     formData.append('file', blob, 'metadata.json');
 
-    // Add Pinata metadata
     const pinataMetadata = JSON.stringify({
       name: `${metadata.name}-metadata.json`,
       keyvalues: {
@@ -308,32 +281,24 @@ router.post('/api/ipfs/upload-metadata', async (req: Request, res: Response) => 
     });
     formData.append('pinataMetadata', pinataMetadata);
 
-    const options = JSON.stringify({
-      cidVersion: 1
-    });
+    const options = JSON.stringify({ cidVersion: 1 });
     formData.append('pinataOptions', options);
 
-    console.log('Uploading metadata to Pinata...');
+    logger.info('Uploading metadata to Pinata');
     const uploadRes = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${PINATA_JWT}`
-      },
+      headers: { 'Authorization': `Bearer ${PINATA_JWT}` },
       body: formData
     });
 
     const uploadText = await uploadRes.text();
-    console.log('Pinata response status:', uploadRes.status);
 
     if (!uploadRes.ok) {
       let errorDetails: any;
-      try {
-        errorDetails = JSON.parse(uploadText);
-      } catch {
-        errorDetails = uploadText;
-      }
-      console.error('Pinata metadata upload error:', errorDetails);
-      return res.status(uploadRes.status).json({ 
+      try { errorDetails = JSON.parse(uploadText); }
+      catch { errorDetails = uploadText; }
+      logger.error('Pinata metadata upload error', { error: errorDetails });
+      return res.status(uploadRes.status).json({
         error: 'Pinata metadata upload failed',
         details: errorDetails
       });
@@ -343,8 +308,7 @@ router.post('/api/ipfs/upload-metadata', async (req: Request, res: Response) => 
     const ipfsHash = uploadData.IpfsHash;
     const ipfsUrl = `https://${PINATA_GATEWAY}/ipfs/${ipfsHash}`;
 
-    console.log('Metadata uploaded successfully:', ipfsHash);
-    console.log('=== IPFS Metadata Upload Completed ===');
+    logger.info('Metadata uploaded successfully', { ipfsHash });
 
     return res.json({
       ipfsHash,
@@ -354,12 +318,8 @@ router.post('/api/ipfs/upload-metadata', async (req: Request, res: Response) => 
     });
 
   } catch (error: any) {
-    console.error('=== IPFS Metadata Upload ERROR ===');
-    console.error('Error:', error.message);
-    console.error('Stack:', error.stack);
-    console.error('=== END ERROR ===');
-    
-    return res.status(500).json({ 
+    logger.error('IPFS Metadata Upload error', { error: error.message, stack: error.stack });
+    return res.status(500).json({
       error: String(error?.message || error)
     });
   }

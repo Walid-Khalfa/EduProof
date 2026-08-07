@@ -8,6 +8,13 @@ export interface IPFSUploadResponse {
   pinataUrl?: string;
   metadataUrl?: string;
   timestamp: string;
+  cid?: string;
+  url?: string;
+  previewCid?: string;
+  previewUrl?: string;
+  mime?: string;
+  pages?: number;
+  sha256?: string;
 }
 
 /**
@@ -19,7 +26,7 @@ export async function uploadFileToIPFS(file: File): Promise<IPFSUploadResponse> 
 
   try {
     const response = await axios.post<IPFSUploadResponse>(
-      `${API_BASE_URL}/api/ipfs/upload-file`,
+      `${API_BASE_URL}/api/ipfs/upload-media`,
       formData,
       {
         headers: {
@@ -42,9 +49,9 @@ export async function uploadFileToIPFS(file: File): Promise<IPFSUploadResponse> 
  */
 export async function uploadJSONToIPFS(metadata: any): Promise<IPFSUploadResponse> {
   try {
-    const response = await axios.post<IPFSUploadResponse>(
-      `${API_BASE_URL}/api/ipfs/upload-json`,
-      { metadata },
+    const response = await axios.post<{ ipfsHash: string; ipfsUrl: string; size: number; timestamp: string }>(
+      `${API_BASE_URL}/api/ipfs/upload-metadata`,
+      metadata,
       {
         headers: {
           'Content-Type': 'application/json',
@@ -52,7 +59,13 @@ export async function uploadJSONToIPFS(metadata: any): Promise<IPFSUploadRespons
       }
     );
 
-    return response.data;
+    return {
+      success: true,
+      ipfsHash: response.data.ipfsHash,
+      pinataUrl: response.data.ipfsUrl,
+      metadataUrl: response.data.ipfsUrl,
+      timestamp: response.data.timestamp,
+    };
   } catch (error: any) {
     console.error('IPFS JSON upload error:', error);
     throw new Error(

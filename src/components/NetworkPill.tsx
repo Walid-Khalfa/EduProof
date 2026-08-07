@@ -1,6 +1,5 @@
 import { AlertCircle, Check, Network } from 'lucide-react';
 import { useAccount, useChainId, useSwitchChain } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -12,25 +11,22 @@ import {
 } from '@/components/ui/dialog';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { chainId, chainName } from '@/utils/chainConfig';
 
-interface NetworkPillProps {
-  requiredNetwork?: 'sepolia';
-}
-
-export function NetworkPill({ requiredNetwork = 'sepolia' }: NetworkPillProps) {
+export function NetworkPill() {
   const { isConnected } = useAccount();
-  const chainId = useChainId();
+  const currentChainId = useChainId();
   const { switchChain, isPending } = useSwitchChain();
   const [showGuide, setShowGuide] = useState(false);
 
   if (!isConnected) return null;
 
-  const isCorrectNetwork = chainId === sepolia.id;
+  const isCorrectNetwork = currentChainId === chainId;
 
   const handleSwitch = () => {
     if (switchChain) {
       try {
-        switchChain({ chainId: sepolia.id });
+        switchChain({ chainId });
       } catch (error) {
         console.error('Failed to switch network:', error);
         setShowGuide(true);
@@ -58,7 +54,7 @@ export function NetworkPill({ requiredNetwork = 'sepolia' }: NetworkPillProps) {
             <AlertCircle className="w-3.5 h-3.5" />
           )}
           <Network className="w-3.5 h-3.5" />
-          <span>Sepolia</span>
+          <span>{chainName}</span>
         </Badge>
 
         {!isCorrectNetwork && (
@@ -68,7 +64,7 @@ export function NetworkPill({ requiredNetwork = 'sepolia' }: NetworkPillProps) {
             size="sm"
             className="h-8 bg-violet-600 hover:bg-violet-700 text-white"
           >
-            {isPending ? 'Switching...' : 'Switch to Sepolia'}
+            {isPending ? 'Switching...' : `Switch to ${chainName}`}
           </Button>
         )}
       </div>
@@ -76,9 +72,9 @@ export function NetworkPill({ requiredNetwork = 'sepolia' }: NetworkPillProps) {
       <Dialog open={showGuide} onOpenChange={setShowGuide}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Switch to Sepolia Network</DialogTitle>
+            <DialogTitle>Switch to {chainName} Network</DialogTitle>
             <DialogDescription>
-              Follow these steps to manually switch to Sepolia testnet
+              Follow these steps to manually switch to {chainName} network
             </DialogDescription>
           </DialogHeader>
 
@@ -90,10 +86,10 @@ export function NetworkPill({ requiredNetwork = 'sepolia' }: NetworkPillProps) {
               <ol className="space-y-2 text-sm text-slate-700 dark:text-slate-300 list-decimal list-inside">
                 <li>Open your wallet extension (MetaMask, Rainbow, etc.)</li>
                 <li>Click on the network dropdown at the top</li>
-                <li>Select "Sepolia Test Network"</li>
+                <li>Select "{chainName}" network or add it as a custom network</li>
                 <li>
-                  If Sepolia is not listed, enable "Show test networks" in
-                  settings
+                  If {chainName} is not listed, add it as a custom RPC network
+                  using the details below
                 </li>
                 <li>Refresh this page after switching</li>
               </ol>
@@ -109,7 +105,7 @@ export function NetworkPill({ requiredNetwork = 'sepolia' }: NetworkPillProps) {
                     Network Name:
                   </dt>
                   <dd className="text-violet-900 dark:text-violet-200">
-                    Sepolia
+                    {chainName}
                   </dd>
                 </div>
                 <div className="flex justify-between">
@@ -117,13 +113,7 @@ export function NetworkPill({ requiredNetwork = 'sepolia' }: NetworkPillProps) {
                     Chain ID:
                   </dt>
                   <dd className="text-violet-900 dark:text-violet-200">
-                    11155111
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-violet-700 dark:text-violet-400">RPC:</dt>
-                  <dd className="text-violet-900 dark:text-violet-200 truncate">
-                    https://sepolia.infura.io/v3/...
+                    {chainId}
                   </dd>
                 </div>
               </dl>

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { getSupabaseClient } from "../services/supabase";
 import { normalize } from "../utils/normalize";
-import { createPublicClient, http, parseAbi } from "viem";
+import { logger } from "../utils/logger";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const router = Router();
@@ -10,8 +10,8 @@ const router = Router();
  * Query blockchain for NFTs owned by an address (DISABLED FOR DEMO)
  * Returns empty array - DB query is primary source
  */
-async function queryChainForOwner(ownerAddress: string, supabase: SupabaseClient): Promise<any[]> {
-  console.log(`[queryChainForOwner] Skipped (demo mode - DB only)`);
+async function queryChainForOwner(_ownerAddress: string, _supabase: SupabaseClient): Promise<any[]> {
+  logger.debug('queryChainForOwner skipped (demo mode - DB only)');
   return [];
 }
 
@@ -23,28 +23,27 @@ router.get("/api/certificates/availability", async (req: Request, res: Response)
   try {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      return res.status(503).json({ 
-        ok: false, 
+      return res.status(503).json({
+        ok: false,
         error: "DATABASE_NOT_CONFIGURED",
-        message: "Database service is not available" 
+        message: "Database service is not available"
       });
     }
 
     const institution = String(req.query.institution || "");
     const certId = String(req.query.certId || "");
-    
+
     const institutionN = normalize(institution);
     const certIdN = normalize(certId);
-    
+
     if (!institutionN || !certIdN) {
-      return res.status(400).json({ 
-        ok: false, 
+      return res.status(400).json({
+        ok: false,
         error: "MISSING_FIELDS",
-        message: "Both institution and certId are required" 
+        message: "Both institution and certId are required"
       });
     }
 
-    // First, get or create institution
     const { data: instData, error: instError } = await supabase
       .from("institutions")
       .select("id")
@@ -52,20 +51,18 @@ router.get("/api/certificates/availability", async (req: Request, res: Response)
       .maybeSingle();
 
     if (instError) {
-      console.error("[certificates/availability] Institution lookup error:", instError);
+      logger.error("certificates/availability institution lookup error", { error: instError });
       throw instError;
     }
 
     if (!instData) {
-      // Institution doesn't exist yet, so certificate ID is available
-      return res.json({ 
-        ok: true, 
+      return res.json({
+        ok: true,
         available: true,
         message: "Certificate ID is available (new institution)"
       });
     }
 
-    // Check if cert ID exists for this institution
     const { data, error } = await supabase
       .from("certificates")
       .select("id")
@@ -75,20 +72,20 @@ router.get("/api/certificates/availability", async (req: Request, res: Response)
       .maybeSingle();
 
     if (error) {
-      console.error("[certificates/availability] DB error:", error);
+      logger.error("certificates/availability DB error", { error });
       throw error;
     }
 
-    res.json({ 
-      ok: true, 
+    res.json({
+      ok: true,
       available: !data,
       message: data ? "Certificate ID already exists" : "Certificate ID is available"
     });
   } catch (e: any) {
-    console.error("[certificates/availability] Error:", e);
-    res.status(500).json({ 
-      ok: false, 
-      error: String(e?.message || e) 
+    logger.error("certificates/availability error", { error: e });
+    res.status(500).json({
+      ok: false,
+      error: String(e?.message || e)
     });
   }
 });
@@ -101,21 +98,21 @@ router.post("/api/certificates/check-duplicate", async (req: Request, res: Respo
   try {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      return res.status(503).json({ 
-        ok: false, 
+      return res.status(503).json({
+        ok: false,
         error: "DATABASE_NOT_CONFIGURED",
-        message: "Database service is not available" 
+        message: "Database service is not available"
       });
     }
 
     const b = req.body || {};
-    
+
     if (!b.ocrJson) {
       return res.json({ ok: true, exists: false });
     }
 
     const { student_name, course_name, institution, issue_date } = b.ocrJson;
-    
+
     if (!student_name || !course_name || !institution || !issue_date) {
       return res.json({ ok: true, exists: false });
     }
@@ -126,7 +123,7 @@ router.post("/api/certificates/check-duplicate", async (req: Request, res: Respo
       .eq("owner", String(b.owner || "").toLowerCase())
       .not("ocr_json", "is", null)
       .limit(100);
-    
+
     if (existingCert && existingCert.length > 0) {
       const duplicate = existingCert.find(cert => {
         if (!cert.ocr_json) return false;
@@ -138,15 +135,15 @@ router.post("/api/certificates/check-duplicate", async (req: Request, res: Respo
           normalize(ocr.issue_date || "") === normalize(issue_date)
         );
       });
-      
+
       if (duplicate) {
-        console.log(`[certificates/check-duplicate] ⚠️ Duplicate found:`, {
+        logger.info("Duplicate certificate found", {
           existingCertId: duplicate.cert_id,
-          owner: duplicate.owner,
+          owner: duplicate.owner
         });
-        
-        return res.json({ 
-          ok: true, 
+
+        return res.json({
+          ok: true,
           exists: true,
           existingCertId: duplicate.cert_id
         });
@@ -155,10 +152,10 @@ router.post("/api/certificates/check-duplicate", async (req: Request, res: Respo
 
     res.json({ ok: true, exists: false });
   } catch (e: any) {
-    console.error("[certificates/check-duplicate] Error:", e);
-    res.status(500).json({ 
-      ok: false, 
-      error: String(e?.message || e) 
+    logger.error("certificates/check-duplicate error", { error: e });
+    res.status(500).json({
+      ok: false,
+      error: String(e?.message || e)
     });
   }
 });
@@ -171,34 +168,33 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
   try {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      return res.status(503).json({ 
-        ok: false, 
+      return res.status(503).json({
+        ok: false,
         error: "DATABASE_NOT_CONFIGURED",
-        message: "Database service is not available" 
+        message: "Database service is not available"
       });
     }
 
     const b = req.body || {};
-    
+
     const institution = String(b.institution || "");
-    // Generate certId from institution + timestamp if not provided
     const certId = String(b.certId || `${institution}-${Date.now()}`);
-    
+
     const institutionN = normalize(institution);
     const certIdN = normalize(certId);
-    
+
     if (!institutionN) {
-      return res.status(400).json({ 
-        ok: false, 
+      return res.status(400).json({
+        ok: false,
         error: "MISSING_FIELDS",
-        message: "Institution is required" 
+        message: "Institution is required"
       });
     }
 
     // Check for duplicate certificate based on OCR data
     if (b.ocrJson) {
       const { student_name, course_name, institution: ocrInstitution, issue_date } = b.ocrJson;
-      
+
       if (student_name && course_name && ocrInstitution && issue_date) {
         const { data: existingCert } = await supabase
           .from("certificates")
@@ -206,9 +202,8 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
           .eq("owner", String(b.owner || "").toLowerCase())
           .not("ocr_json", "is", null)
           .limit(100);
-        
+
         if (existingCert && existingCert.length > 0) {
-          // Check if any existing cert has matching OCR data
           const duplicate = existingCert.find(cert => {
             if (!cert.ocr_json) return false;
             const ocr = cert.ocr_json as any;
@@ -219,17 +214,17 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
               normalize(ocr.issue_date || "") === normalize(issue_date)
             );
           });
-          
+
           if (duplicate) {
-            console.log(`[certificates/index] ⚠️ Duplicate certificate detected:`, {
+            logger.info("Duplicate certificate detected", {
               existingCertId: duplicate.cert_id,
               owner: duplicate.owner,
               studentName: student_name,
               courseName: course_name
             });
-            
-            return res.status(409).json({ 
-              ok: false, 
+
+            return res.status(409).json({
+              ok: false,
               error: "DUPLICATE_CERTIFICATE",
               message: "A certificate with identical details already exists",
               existingCertId: duplicate.cert_id
@@ -261,7 +256,7 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
         .single();
 
       if (instError) {
-        console.error("[certificates/index] Institution creation error:", instError);
+        logger.error("certificates/index institution creation error", { error: instError });
         throw instError;
       }
       institutionId = newInst.id;
@@ -287,7 +282,7 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
       status: b.status || 'minted'
     };
 
-    console.log(`[certificates/index] Indexing certificate:`, {
+    logger.info("Indexing certificate", {
       certId,
       institution,
       owner: row.owner,
@@ -297,10 +292,10 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
     });
 
     // Use tx_hash as unique identifier when tokenId is missing
-    const upsertOptions = row.token_id 
+    const upsertOptions = row.token_id
       ? { onConflict: 'contract,token_id', ignoreDuplicates: false }
       : {};
-    
+
     const { data, error } = await supabase
       .from("certificates")
       .upsert(row, upsertOptions)
@@ -308,18 +303,17 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
       .single();
 
     if (error) {
-      console.error("[certificates/index] DB error:", error);
-      console.error("[certificates/index] Failed row:", row);
+      logger.error("certificates/index DB error", { error, row });
       throw error;
     }
 
-    console.log(`✅ Certificate indexed: ${certId} for ${institution} (owner: ${row.owner})`);
+    logger.info("Certificate indexed", { certId, institution, owner: row.owner });
     res.status(201).json({ ok: true, certificate: data });
   } catch (e: any) {
-    console.error("[certificates/index] Error:", e);
-    res.status(500).json({ 
-      ok: false, 
-      error: String(e?.message || e) 
+    logger.error("certificates/index error", { error: e });
+    res.status(500).json({
+      ok: false,
+      error: String(e?.message || e)
     });
   }
 });
@@ -333,20 +327,20 @@ router.get("/api/certificates/owner/:address", async (req: Request, res: Respons
   try {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      return res.status(503).json({ 
-        ok: false, 
+      return res.status(503).json({
+        ok: false,
         error: "DATABASE_NOT_CONFIGURED",
-        message: "Database service is not available" 
+        message: "Database service is not available"
       });
     }
 
     const address = req.params.address?.toLowerCase();
     const source = req.query.source as string;
-    
+
     if (!address) {
-      return res.status(400).json({ 
-        ok: false, 
-        error: "MISSING_ADDRESS" 
+      return res.status(400).json({
+        ok: false,
+        error: "MISSING_ADDRESS"
       });
     }
 
@@ -388,31 +382,26 @@ router.get("/api/certificates/owner/:address", async (req: Request, res: Respons
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("[certificates/owner] DB error:", error);
+      logger.error("certificates/owner DB error", { error });
       throw error;
     }
 
-    // Add derived 'verified' property from status
-    let certificates = (data || []).map(cert => ({
+    const certificates = (data || []).map((cert: any) => ({
       ...cert,
       institutions: cert.institutions ? {
         ...cert.institutions,
-        verified: cert.institutions.status === 'approved'
+        verified: (cert.institutions as any).status === 'approved'
       } : null
     }));
 
-    // Chain query disabled for demo (devnet contract issues)
-    console.log(`[certificates/owner] Returning ${certificates.length} certificates from DB (chain query disabled)`);
-    // if (source === 'chain' || certificates.length === 0) {
-    //   Chain query disabled - DB is source of truth
-    // }
+    logger.debug("certificates/owner returning certs from DB", { count: certificates.length, chainQueryDisabled: true });
 
     res.json({ ok: true, certificates });
   } catch (e: any) {
-    console.error("[certificates/owner] Error:", e);
-    res.status(500).json({ 
-      ok: false, 
-      error: String(e?.message || e) 
+    logger.error("certificates/owner error", { error: e });
+    res.status(500).json({
+      ok: false,
+      error: String(e?.message || e)
     });
   }
 });
@@ -428,36 +417,35 @@ router.get("/api/certificates/verify", async (req: Request, res: Response) => {
   try {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      return res.status(503).json({ 
-        ok: false, 
+      return res.status(503).json({
+        ok: false,
         error: "DATABASE_NOT_CONFIGURED",
-        message: "Database service is not available" 
+        message: "Database service is not available"
       });
     }
 
-    const { certId, institution, tokenURI, txHash, contract, tokenId } = req.query;
+    const { certId, institution, txHash, contract, tokenId } = req.query;
 
     let query = supabase.from("certificates").select("*");
 
     if (certId && institution) {
       const institutionN = normalize(String(institution));
       const certIdN = normalize(String(certId));
-      
-      // Get institution ID first
+
       const { data: instData } = await supabase
         .from("institutions")
         .select("id")
         .eq("name_normalized", institutionN)
         .maybeSingle();
-      
+
       if (!instData) {
-        return res.json({ 
-          ok: true, 
+        return res.json({
+          ok: true,
           found: false,
-          message: "Institution not found" 
+          message: "Institution not found"
         });
       }
-      
+
       query = query
         .select(`
           id,
@@ -562,29 +550,28 @@ router.get("/api/certificates/verify", async (req: Request, res: Response) => {
         .eq("contract", String(contract).toLowerCase())
         .eq("token_id", String(tokenId));
     } else {
-      return res.status(400).json({ 
-        ok: false, 
+      return res.status(400).json({
+        ok: false,
         error: "MISSING_PARAMS",
-        message: "Provide either (certId + institution), (contract + tokenId), tokenURI, or txHash" 
+        message: "Provide either (certId + institution), (contract + tokenId), tokenURI, or txHash"
       });
     }
 
     const { data, error } = await query.maybeSingle();
 
     if (error) {
-      console.error("[certificates/verify] DB error:", error);
+      logger.error("certificates/verify DB error", { error });
       throw error;
     }
 
     if (!data) {
-      return res.json({ 
-        ok: true, 
+      return res.json({
+        ok: true,
         found: false,
-        message: "Certificate not found in database" 
+        message: "Certificate not found in database"
       });
     }
 
-    // Add derived 'verified' property from status
     const certificate = data.institutions ? {
       ...data,
       institutions: {
@@ -593,16 +580,16 @@ router.get("/api/certificates/verify", async (req: Request, res: Response) => {
       }
     } : data;
 
-    res.json({ 
-      ok: true, 
+    res.json({
+      ok: true,
       found: true,
-      certificate 
+      certificate
     });
   } catch (e: any) {
-    console.error("[certificates/verify] Error:", e);
-    res.status(500).json({ 
-      ok: false, 
-      error: String(e?.message || e) 
+    logger.error("certificates/verify error", { error: e });
+    res.status(500).json({
+      ok: false,
+      error: String(e?.message || e)
     });
   }
 });

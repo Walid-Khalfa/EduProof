@@ -5,15 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "cp -f contracts/interfaces/metadata.json src/metadata.json || true",
+    "prebuild": "node scripts/copy-metadata.js",
     "build": "vite build",
     "lint": "eslint .",
-    "postcss:check": "postcss src/**/*.css --no-map --dry-run > /dev/null",
-    "preview": "vite preview"
+    "postcss:check": "postcss src/**/*.css --no-map --dry-run",
+    "preview": "vite preview",
+    "dev:full": "concurrently \"pnpm --filter eduproof-backend dev\" \"pnpm dev\"",
+    "dev:server": "cd server && pnpm dev",
+    "build:server": "cd server && pnpm build"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.1.1",
-    "@huggingface/inference": "^4.11.2",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-avatar": "^1.1.10",
@@ -57,9 +59,6 @@
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "embla-carousel-react": "^8.6.0",
-    "ethers": "^6.15.0",
-    "express": "^5.1.0",
-    "form-data": "^4.0.4",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.525.0",
     "multer": "^2.0.2",
@@ -102,6 +101,7 @@
     "postcss": "^8.5.6",
     "postcss-cli": "^11.0.1",
     "tailwindcss": "3",
+    "terser": "^5.49.2",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.35.1",
     "vite": "npm:rolldown-vite@7.1.9"
