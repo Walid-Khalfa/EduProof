@@ -100,6 +100,24 @@ The `SUPABASE_SERVICE_ROLE` key **bypasses Row Level Security (RLS)** and has fu
    - Implement additional authorization checks
    - Log all service_role operations
 
+---
+
+### RLS Policies (applied in `20240104000000_enable_rls.sql`)
+
+All three tables have RLS **enabled** (apply this migration to any new database):
+
+| Table | anon / authenticated access | Notes |
+|-------|-----------------------------|-------|
+| `certificates` | `SELECT` only | Public verification lookups; writes via service_role only |
+| `institutions` | `SELECT` only | Public registry; writes via service_role only |
+| `verifications` | **None** | Contains verifier IPs; service_role (BYPASSRLS) only |
+
+**Effects:**
+- The public anon key (exposed by design in the browser bundle) can **never** write to any table.
+- Anonymous database reads are limited to certificate/institution lookups — exactly what the
+  verification feature needs.
+- All inserts/updates flow through the backend with the service role, unchanged.
+
 **Example - Secure Usage:**
 
 ```typescript

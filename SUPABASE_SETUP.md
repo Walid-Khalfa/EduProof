@@ -44,6 +44,12 @@ SUPABASE_SERVICE_ROLE=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 4. Cliquez sur **Run** (ou Ctrl+Enter)
 5. Vérifiez que les 3 tables sont créées : `institutions`, `certificates`, `verifications`
 
+> ⚠️ **IMPORTANT** : Exécutez ensuite TOUTES les autres migrations du dossier
+> `supabase/migrations/` dans l'ordre chronologique, notamment :
+> - `20240103000000_add_admin_institution_fields.sql` (colonnes admin)
+> - `20241024000000_add_blockchain_fields.sql` (colonnes blockchain)
+> - `20240104000000_enable_rls.sql` (**obligatoire** — active la sécurité RLS)
+
 ### 5. Vérifier les tables
 
 Dans **Table Editor**, vous devriez voir :
@@ -88,6 +94,9 @@ Le fichier `supabase/migrations/20240101000000_create_eduproof_tables.sql` conti
 ✅ Jamais exposés au frontend
 ✅ La clé `service_role` permet les opérations admin côté serveur
 ✅ Les routes API backend utilisent `supabaseSrv` avec auth désactivée
+✅ **RLS activée** sur toutes les tables (migration `20240104000000_enable_rls.sql`) :
+   - `certificates` et `institutions` : lecture publique, écriture serveur uniquement
+   - `verifications` : aucun accès anon (contient des IP de vérificateurs)
 
 ## Troubleshooting
 

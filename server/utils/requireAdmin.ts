@@ -1,33 +1,57 @@
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { verifyMessage } from 'viem';
 import { logger } from '../utils/logger';
 
 const AUTH_MESSAGE_PREFIX = 'EduProof Admin Auth:';
 const MAX_MESSAGE_AGE_SECONDS = 5 * 60;
 
+/** Timing-safe comparison: compare digests so length is not observable. */
+function safeEqual(a: string, b: string): boolean {
+  const ha = crypto.createHash('sha256').update(a).digest();
+  const hb = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
 /**
- * Builds the message an admin wallet must sign to authenticate.
- * The timestamp makes the signature short-lived and prevents replay.
+ * Hashes the request body so the signed message cannot be replayed against
+ * a different payload. Empty bodies hash to the empty string.
  */
-export function buildAdminAuthMessage(nowSeconds = Math.floor(Date.now() / 1000)): string {
-  return `${AUTH_MESSAGE_PREFIX} ${nowSeconds}`;
+function computeBodyHash(body: unknown): string {
+  if (body === undefined || body === null) return '';
+  const keys = Object.keys(body as object);
+  if (keys.length === 0) return '';
+  return crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
+}
+
+/**
+ * Builds the message a client must sign for a specific request:
+ * "EduProof Admin Auth: <unixSeconds>:<METHOD>:<path>[:<bodyHash>]".
+ * Binding method + path + body hash means a signature captured on one
+ * request cannot be replayed on another, even within the freshness window.
+ */
+export function buildAdminAuthMessage(nowSeconds: number, method: string, path: string, bodyHash = ''): string {
+  return `${AUTH_MESSAGE_PREFIX} ${nowSeconds}:${method}:${path}:${bodyHash}`;
 }
 
 /**
  * Middleware to require admin authentication.
  * Requires either:
- * 1. Admin API key (ADMIN_API_KEY env var via x-admin-key header)
+ * 1. Admin API key (ADMIN_API_KEY env var via x-admin-key header, compared
+ *    in constant time)
  * 2. Wallet allowlist (ADMIN_WALLETS env var) with a fresh EIP-191 signature
- *    proving ownership of the wallet (x-wallet-address + x-message + x-signature).
+ *    proving ownership of the wallet (x-wallet-address + x-message + x-signature),
+ *    where the message is bound to the method, path and body of this request.
  *
- * The wallet path requires a signature of the exact message "EduProof Admin Auth: <unixSeconds>"
- * issued within the last 5 minutes. A bare wallet header is never accepted.
+ * The wallet path requires a signature of the exact message
+ * "EduProof Admin Auth: <ts>:<METHOD>:<path>:<bodyHash>" issued within the
+ * last 5 minutes. A bare wallet header is never accepted.
  */
-export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const apiKey = req.headers['x-admin-key'] as string;
   const validApiKey = process.env.ADMIN_API_KEY;
 
-  if (validApiKey && apiKey && apiKey === validApiKey) {
+  if (validApiKey && apiKey && safeEqual(apiKey, validApiKey)) {
     return next();
   }
 
@@ -65,9 +89,24 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
     return reject('invalid message format');
   }
 
-  const timestamp = Number(message.slice(AUTH_MESSAGE_PREFIX.length).trim());
-  if (!Number.isFinite(timestamp) || String(Math.floor(timestamp)) !== message.slice(AUTH_MESSAGE_PREFIX.length).trim()) {
+  const parts = message.slice(AUTH_MESSAGE_PREFIX.length).trim().split(':');
+  if (parts.length !== 4) {
+    return reject('invalid message structure');
+  }
+
+  const [timestampStr, method, path, bodyHash] = parts;
+  const timestamp = Number(timestampStr);
+  if (!Number.isFinite(timestamp) || String(Math.floor(timestamp)) !== timestampStr) {
     return reject('invalid message timestamp');
+  }
+
+  if (method !== req.method || path !== req.path) {
+    return reject('message not bound to this request');
+  }
+
+  const expectedBodyHash = computeBodyHash(req.body);
+  if (bodyHash !== expectedBodyHash) {
+    return reject('message not bound to this request body');
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -76,7 +115,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   }
 
   try {
-    const recovered = verifyMessage({
+    const recovered = await verifyMessage({
       address: walletAddress as `0x${string}`,
       message,
       signature: signature as `0x${string}`,

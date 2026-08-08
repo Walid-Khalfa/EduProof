@@ -42,8 +42,8 @@ export function getSupabaseClient() {
       } else {
         logger.info('Supabase connection test successful', { rows: data?.length ?? 0 });
       }
-    } catch (err: any) {
-      logger.error('Supabase connection test error', { error: err.message });
+    } catch (err) {
+      logger.error('Supabase connection test error', { error: err instanceof Error ? err.message : String(err) });
     }
   })();
 
@@ -83,11 +83,12 @@ export async function checkDbConnection() {
       connected: true,
       rows: data?.length ?? 0
     };
-  } catch (e: any) {
-    logger.error('checkDbConnection exception', { error: e.message });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    logger.error('checkDbConnection exception', { error: message });
     return {
       connected: false,
-      error: e.message,
+      error: message,
       rows: 0
     };
   }

@@ -6,10 +6,9 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { CheckCircle2, XCircle, Search, Calendar, Building2, Award, ExternalLink, Loader2 } from 'lucide-react';
+import { CheckCircle2, XCircle, Search, Calendar, Building2, Award, ExternalLink, Loader2, AlertTriangle } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useReadContract } from 'wagmi';
-import { eduProofCertificateAddress, eduProofCertificateABI } from '@/utils/chainConfig';
+import { eduProofCertificateAddress } from '@/utils/chainConfig';
 import { useToast } from '@/hooks/use-toast';
 import { SkeletonCard } from '@/components/SkeletonCard';
 import { CopyField } from '@/components/CopyField';
@@ -18,23 +17,57 @@ import { useSearchParams } from 'react-router-dom';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+interface OnChainResult {
+  verified: boolean | null;
+  owner?: string;
+  status?: string;
+  contract?: string;
+  tokenId?: string;
+  chainId?: number | null;
+  reason?: string;
+}
+
 interface Certificate {
+  id: string;
   cert_id: string;
+  cert_id_normalized: string;
   institution_id: string;
-  student_name: string;
-  course_name: string;
-  issue_date: string;
-  token_id: string;
-  ipfs_image_hash: string;
-  ipfs_metadata_hash: string;
-  tx_hash: string;
-  minter_address: string;
-  verification_score: number;
+  institution: string;
+  token_id: string | null;
+  owner: string;
+  token_uri: string | null;
+  image_cid: string | null;
+  meta_cid: string | null;
+  tx_hash: string | null;
+  score: number | null;
+  ocr_json: {
+    student_name: string;
+    course_name: string;
+    institution: string;
+    issue_date: string;
+  } | null;
+  verification_url: string | null;
+  status: string;
+  chain_id: number | null;
+  contract: string;
   created_at: string;
   institutions: {
     name: string;
+    status: string;
     verified: boolean;
-  };
+  } | null;
+}
+
+type VerificationState = 'verified' | 'revoked' | 'issuer_pending' | 'unknown';
+
+function getVerificationState(cert: Certificate, onChain: OnChainResult | null): VerificationState {
+  if (cert.status === 'revoked' || onChain?.status === 'Revoked' || onChain?.verified === false) {
+    return 'revoked';
+  }
+  if (onChain?.verified === true) {
+    return cert.institutions?.verified === false ? 'issuer_pending' : 'verified';
+  }
+  return 'unknown';
 }
 
 export default function Verify() {
@@ -56,6 +89,7 @@ function VerifyPageContent() {
   const [certId, setCertId] = useState('');
   const [institution, setInstitution] = useState('');
   const [verificationResult, setVerificationResult] = useState<Certificate | null>(null);
+  const [onChainResult, setOnChainResult] = useState<OnChainResult | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const { toast } = useToast();
@@ -71,6 +105,7 @@ function VerifyPageContent() {
 
   const handleVerify = async () => {
     setVerificationResult(null);
+    setOnChainResult(null);
     setNotFound(false);
 
     if (searchType === 'certId') {
@@ -114,6 +149,7 @@ function VerifyPageContent() {
 
       if (data.found && data.certificate) {
         setVerificationResult(data.certificate);
+        setOnChainResult(data.onChain ?? null);
         toast({
           title: 'Certificate Found',
           description: 'Certificate verified successfully',
@@ -260,20 +296,88 @@ function VerifyPageContent() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Verification Result</CardTitle>
-                <Badge variant="default" className="text-base px-4 py-1">
-                  <CheckCircle2 className="w-4 h-4 mr-2" />
-                  Verified
-                </Badge>
+                {(() => {
+                  const state = getVerificationState(verificationResult, onChainResult);
+                  if (state === 'revoked') {
+                    return (
+                      <Badge variant="destructive" className="text-base px-4 py-1">
+                        <XCircle className="w-4 h-4 mr-2" />
+                        Revoked
+                      </Badge>
+                    );
+                  }
+                  if (state === 'verified') {
+                    return (
+                      <Badge variant="default" className="text-base px-4 py-1">
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        Verified
+                      </Badge>
+                    );
+                  }
+                  if (state === 'issuer_pending') {
+                    return (
+                      <Badge variant="secondary" className="text-base px-4 py-1">
+                        <AlertTriangle className="w-4 h-4 mr-2" />
+                        On-Chain · Issuer Pending
+                      </Badge>
+                    );
+                  }
+                  return (
+                    <Badge variant="outline" className="text-base px-4 py-1">
+                      <Loader2 className="w-4 h-4 mr-2" />
+                      Status Unavailable
+                    </Badge>
+                  );
+                })()}
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Status Alert */}
-              <Alert className="border-green-500 bg-green-50">
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-                <AlertDescription className="text-green-800">
-                  This certificate is valid and has been verified on the blockchain.
-                </AlertDescription>
-              </Alert>
+              {(() => {
+                const state = getVerificationState(verificationResult, onChainResult);
+                if (state === 'revoked') {
+                  return (
+                    <Alert className="border-red-500 bg-red-50">
+                      <XCircle className="h-4 w-4 text-red-600" />
+                      <AlertDescription className="text-red-800">
+                        This certificate has been revoked and is no longer valid.
+                        {onChainResult?.reason && (
+                          <span className="block text-xs mt-1">Chain: {onChainResult.reason}</span>
+                        )}
+                      </AlertDescription>
+                    </Alert>
+                  );
+                }
+                if (state === 'verified') {
+                  return (
+                    <Alert className="border-green-500 bg-green-50">
+                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      <AlertDescription className="text-green-800">
+                        This certificate is valid and verified on the blockchain by an approved issuer.
+                      </AlertDescription>
+                    </Alert>
+                  );
+                }
+                if (state === 'issuer_pending') {
+                  return (
+                    <Alert className="border-amber-500 bg-amber-50">
+                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      <AlertDescription className="text-amber-800">
+                        This certificate exists on-chain, but the issuing institution has not been approved by EduProof administrators. Verify the institution before trusting this credential.
+                      </AlertDescription>
+                    </Alert>
+                  );
+                }
+                return (
+                  <Alert className="border-blue-500 bg-blue-50">
+                    <AlertTriangle className="h-4 w-4 text-blue-600" />
+                    <AlertDescription className="text-blue-800">
+                      The blockchain cross-check is currently unavailable
+                      {onChainResult?.reason ? ` (${onChainResult.reason})` : ''}. The database record was found — verify the transaction hash directly on the explorer before trusting this credential.
+                    </AlertDescription>
+                  </Alert>
+                );
+              })()}
 
               {/* Certificate Details */}
               <div className="space-y-4">
@@ -290,18 +394,18 @@ function VerifyPageContent() {
                   )}
                   <div>
                     <Label className="text-slate-500">Student Name</Label>
-                    <p className="font-semibold text-slate-900">{verificationResult.student_name}</p>
+                    <p className="font-semibold text-slate-900">{verificationResult.ocr_json?.student_name || 'N/A'}</p>
                   </div>
                   <div>
                     <Label className="text-slate-500">Course Name</Label>
-                    <p className="font-semibold text-slate-900">{verificationResult.course_name}</p>
+                    <p className="font-semibold text-slate-900">{verificationResult.ocr_json?.course_name || 'N/A'}</p>
                   </div>
                   <div>
                     <Label className="text-slate-500">Institution</Label>
                     <div className="flex items-center gap-2">
                       <Building2 className="w-4 h-4 text-slate-500" />
-                      <p className="font-semibold text-slate-900">{verificationResult.institutions.name}</p>
-                      {verificationResult.institutions.verified && (
+                      <p className="font-semibold text-slate-900">{verificationResult.ocr_json?.institution || verificationResult.institutions?.name || 'N/A'}</p>
+                      {verificationResult.institutions?.verified && (
                         <Badge variant="default" className="text-xs">Verified</Badge>
                       )}
                     </div>
@@ -311,23 +415,38 @@ function VerifyPageContent() {
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-slate-500" />
                       <p className="font-semibold text-slate-900">
-                        {new Date(verificationResult.issue_date).toLocaleDateString()}
+                        {verificationResult.ocr_json?.issue_date
+                          ? new Date(verificationResult.ocr_json.issue_date).toLocaleDateString()
+                          : 'N/A'}
                       </p>
                     </div>
                   </div>
-                  {verificationResult.verification_score && (
+                  {verificationResult.score !== null && verificationResult.score !== undefined && (
                     <div>
                       <Label className="text-slate-500">Verification Score</Label>
                       <div className="flex items-center gap-2">
                         <Award className="w-4 h-4 text-green-600" />
-                        <p className="font-semibold text-green-600">{verificationResult.verification_score}/100</p>
+                        <p className="font-semibold text-green-600">{verificationResult.score}/100</p>
                       </div>
+                    </div>
+                  )}
+                  {verificationResult.verification_url && (
+                    <div>
+                      <Label className="text-slate-500">Issuer Verification Page</Label>
+                      <a
+                        href={verificationResult.verification_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sky-600 hover:underline text-sm"
+                      >
+                        Open verification page <ExternalLink className="w-3 h-3" />
+                      </a>
                     </div>
                   )}
                   <div>
                     <Label className="text-slate-500">Minted By</Label>
                     <code className="text-xs bg-slate-100 px-2 py-1 rounded block truncate">
-                      {verificationResult.minter_address}
+                      {verificationResult.owner || 'N/A'}
                     </code>
                   </div>
                 </div>
@@ -355,25 +474,31 @@ function VerifyPageContent() {
                         shortened
                       />
                     )}
-                    {verificationResult.ipfs_metadata_hash && (
+                    {verificationResult.meta_cid && (
                       <CopyField
                         label="Metadata IPFS"
-                        value={verificationResult.ipfs_metadata_hash}
-                        link={`https://gateway.pinata.cloud/ipfs/${verificationResult.ipfs_metadata_hash}`}
+                        value={verificationResult.meta_cid}
+                        link={`https://gateway.pinata.cloud/ipfs/${verificationResult.meta_cid}`}
                         linkLabel="View JSON"
                         monospace
                         shortened
                       />
                     )}
-                    {verificationResult.ipfs_image_hash && (
+                    {verificationResult.image_cid && (
                       <CopyField
                         label="Image IPFS"
-                        value={verificationResult.ipfs_image_hash}
-                        link={`https://gateway.pinata.cloud/ipfs/${verificationResult.ipfs_image_hash}`}
+                        value={verificationResult.image_cid}
+                        link={`https://gateway.pinata.cloud/ipfs/${verificationResult.image_cid}`}
                         linkLabel="View Image"
                         monospace
                         shortened
                       />
+                    )}
+                    {onChainResult && (
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        <p>On-chain owner: <code className="bg-slate-100 px-1 py-0.5 rounded">{onChainResult.owner || 'N/A'}</code></p>
+                        {onChainResult.status && <p>On-chain status: <span className="font-medium">{onChainResult.status}</span></p>}
+                      </div>
                     )}
                   </div>
                 </div>

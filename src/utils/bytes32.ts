@@ -6,7 +6,7 @@
 /**
  * Safely truncate a string to fit within bytes32 (32 bytes max)
  * UTF-8 encoding means some characters take multiple bytes
- * We truncate to 31 characters max to be safe
+ * An ellipsis is appended only when it fits within the byte budget.
  * 
  * @param str - Input string to truncate
  * @param maxBytes - Maximum bytes allowed (default 31 to leave room for null terminator)
@@ -46,6 +46,18 @@ export function truncateForBytes32(str: string, maxBytes: number = 31): string {
   
   truncated = str.substring(0, left);
   
+  // The binary search counts UTF-8 bytes but slices by UTF-16 code units,
+  // so it can split a surrogate pair (e.g. emoji > U+FFFF): a lone high
+  // surrogate encodes as 3 bytes and passes the budget check. Back off one
+  // unit when the result ends on an unpaired high surrogate (a lone low
+  // surrogate can never appear at the end: it would mean the pair is whole).
+  if (truncated.length > 0) {
+    const lastCode = truncated.charCodeAt(truncated.length - 1);
+    if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+      truncated = truncated.substring(0, truncated.length - 1);
+    }
+  }
+  
   // Add ellipsis if truncated (but ensure it still fits)
   if (truncated.length < str.length) {
     const withEllipsis = truncated + '…';
@@ -56,29 +68,6 @@ export function truncateForBytes32(str: string, maxBytes: number = 31): string {
   }
   
   return truncated;
-}
-
-/**
- * Validate and prepare certificate fields for bytes32 encoding
- * Truncates long strings to prevent overflow errors
- * 
- * @param fields - Certificate fields to validate
- * @returns Validated and truncated fields safe for bytes32 encoding
- */
-export interface CertificateFields {
-  studentName: string;
-  courseName: string;
-  institution: string;
-  issueDate: string;
-}
-
-export function validateBytes32Fields(fields: CertificateFields): CertificateFields {
-  return {
-    studentName: truncateForBytes32(fields.studentName),
-    courseName: truncateForBytes32(fields.courseName),
-    institution: truncateForBytes32(fields.institution),
-    issueDate: truncateForBytes32(fields.issueDate),
-  };
 }
 
 /**

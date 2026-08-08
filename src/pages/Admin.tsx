@@ -36,7 +36,7 @@ type AdminInstitutionListResponse = {
 
 export default function Admin() {
   const { address, isConnected } = useAccount();
-  const { authHeaders, signed, signing, signIn, authError } = useAdminAuth();
+  const { getAuthHeaders, signed, signing, signIn, authError } = useAdminAuth();
   const { toast } = useToast();
 
   const [newInstitution, setNewInstitution] = useState({
@@ -71,11 +71,13 @@ export default function Admin() {
       if (search) params.search = search;
       if (statusFilter !== 'all') params.status = statusFilter;
 
+      const headers = await getAuthHeaders('GET', '/api/admin/institutions');
+
       const response = await axios.get<AdminInstitutionListResponse>(
         `${API_BASE}/api/admin/institutions`,
         {
           params,
-          headers: authHeaders,
+          headers,
         }
       );
 
@@ -116,17 +118,20 @@ export default function Admin() {
 
     setActionLoading('register');
     try {
+      const body = {
+        name: newInstitution.name,
+        wallet: newInstitution.wallet || null,
+        didUri: newInstitution.didUri || null,
+        min_score: newInstitution.min_score,
+        status: 'approved',
+      };
+      const headers = await getAuthHeaders('POST', '/api/admin/institutions', body);
+
       await axios.post(
         `${API_BASE}/api/admin/institutions`,
+        body,
         {
-          name: newInstitution.name,
-          wallet: newInstitution.wallet || null,
-          didUri: newInstitution.didUri || null,
-          min_score: newInstitution.min_score,
-          status: 'approved',
-        },
-        {
-          headers: authHeaders,
+          headers,
         }
       );
 
@@ -153,11 +158,13 @@ export default function Admin() {
   const handleRevokeInstitution = async (id: string) => {
     setActionLoading(id);
     try {
+      const headers = await getAuthHeaders('POST', `/api/admin/institutions/${id}/revoke`);
+
       await axios.post(
         `${API_BASE}/api/admin/institutions/${id}/revoke`,
         {},
         {
-          headers: authHeaders,
+          headers,
         }
       );
 
@@ -182,11 +189,13 @@ export default function Admin() {
   const handleApproveInstitution = async (id: string) => {
     setActionLoading(id);
     try {
+      const headers = await getAuthHeaders('POST', `/api/admin/institutions/${id}/approve`);
+
       await axios.post(
         `${API_BASE}/api/admin/institutions/${id}/approve`,
         {},
         {
-          headers: authHeaders,
+          headers,
         }
       );
 

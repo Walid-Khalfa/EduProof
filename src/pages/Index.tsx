@@ -8,12 +8,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle2, Loader2, X, ExternalLink } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, useChainId, usePublicClient } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, useChainId, usePublicClient, useSignMessage } from 'wagmi';
 import { useOCR } from '@/hooks/useOCR';
 import { useToast } from '@/hooks/use-toast';
 import { eduProofCertificateAddress, eduProofCertificateABI, chainId as expectedChainId } from '@/utils/chainConfig';
 import { keccak256, toBytes, encodeAbiParameters, parseAbiParameters, decodeEventLog, parseAbiItem } from 'viem';
-import { validateBytes32Fields, hexToBytes32, assertBytes32 } from '@/utils/bytes32';
+import { hexToBytes32, assertBytes32 } from '@/utils/bytes32';
 import { getEtherscanUrl } from '@/components/EtherscanLink';
 import axios from 'axios';
 import { Stepper } from '@/components/Stepper';
@@ -45,6 +45,7 @@ function MintPageContent({ address, isConnected }: { address: string | undefined
   const chainId = useChainId();
   const { toast } = useToast();
   const runOCR = useOCR();
+  const { signMessageAsync } = useSignMessage();
   
   // Zustand store
   const {
@@ -318,6 +319,11 @@ function MintPageContent({ address, isConnected }: { address: string | undefined
           };
           
           console.log('[mint] Indexing payload:', indexPayload);
+
+          // The backend requires a signature from the owner wallet bound to
+          // this exact transaction before it will index the certificate.
+          const indexMessage = `EduProof Cert Index: ${txHash}`;
+          const signature = await signMessageAsync({ message: indexMessage });
           
           await axios.post(
             `${import.meta.env.VITE_API_URL}/api/certificates/index`,
@@ -325,6 +331,9 @@ function MintPageContent({ address, isConnected }: { address: string | undefined
             {
               headers: {
                 'x-idempotency-key': pendingData.idempotencyKey,
+                'x-wallet-address': address as string,
+                'x-message': indexMessage,
+                'x-signature': signature,
               },
             }
           );
@@ -376,7 +385,7 @@ function MintPageContent({ address, isConnected }: { address: string | undefined
       
       indexCertificate();
     }
-  }, [isConfirmed, receipt, address, fields, toast, setStep]);
+  }, [isConfirmed, receipt, address, fields, toast, setStep, signMessageAsync]);
 
   // Check if certificate already exists
   const { data: certificateExists } = useReadContract({
@@ -681,15 +690,10 @@ function MintPageContent({ address, isConnected }: { address: string | undefined
         description: 'Please confirm the transaction in your wallet...',
       });
       
-      // Validate and truncate fields to fit bytes32 (31 bytes max)
-      const safeFields = validateBytes32Fields({
-        studentName: fields.studentName,
-        courseName: fields.courseName,
-        institution: fields.institution,
-        issueDate: fields.issueDate,
-      });
-      
-      const studentHash = keccak256(toBytes(safeFields.studentName));
+      // The contract declares these as dynamic strings: no truncation is
+      // needed. (Truncating silently altered the on-chain record and made
+      // distinct long names collide on the duplicate check.)
+      const studentHash = keccak256(toBytes(fields.studentName));
       
       // Validate studentHash is bytes32
       assertBytes32(studentHash);
@@ -701,8 +705,7 @@ function MintPageContent({ address, isConnected }: { address: string | undefined
           tokenURI: tokenURI.substring(0, 50) + '...',
           studentHash,
           studentHashLength: studentHash.length,
-          safeFields,
-          allFieldsValid: Object.values(safeFields).every(f => f.length <= 31)
+          fields,
         });
       }
       
@@ -715,10 +718,10 @@ function MintPageContent({ address, isConnected }: { address: string | undefined
             address,
             tokenURI,
             studentHash,
-            safeFields.studentName,
-            safeFields.courseName,
-            safeFields.institution,
-            safeFields.issueDate,
+            fields.studentName,
+            fields.courseName,
+            fields.institution,
+            fields.issueDate,
           ],
         },
         {

@@ -6,6 +6,7 @@ import net from 'net';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { logger } from './utils/logger';
+import { errorHandler } from './utils/httpError';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -49,10 +50,36 @@ process.on('uncaughtException', (error) => {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// The server runs behind a single trusted proxy (nginx / Docker / Vercel).
+// Without this, every request keys on the proxy IP and the rate limiters
+// collapse all users into one shared bucket.
+app.set('trust proxy', 1);
+
+// Rate limiting runs BEFORE the body parsers: requests that are about to be
+// rejected must not pay the cost of buffering and JSON-parsing their bodies.
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: isProduction ? 100 : 1000, // 100 requests per window in prod
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', apiLimiter);
+
+// Stricter rate limiter for OCR (expensive Gemini calls)
+const ocrLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: isProduction ? 20 : 200, // 20 OCR calls per hour in prod
+  message: 'OCR rate limit exceeded. Please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/ocr', ocrLimiter);
+
 // Check if port is already in use and exit gracefully
 const tester = net.createServer();
-tester.once('error', (err: any) => {
-  if (err.code === 'EADDRINUSE') {
+tester.once('error', (err: Error) => {
+  if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
     logger.warn(`Port ${PORT} is already in use. Please stop the existing server first.`);
     process.exit(0);
   }
@@ -67,7 +94,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:", "ipfs://", "https://*.ipfs.io", "https://gateway.pinata.cloud"],
+      imgSrc: ["'self'", "data:", "https:", "ipfs:", "https://*.ipfs.io", "https://gateway.pinata.cloud"],
       connectSrc: ["'self'", "https:", "wss:"],
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
@@ -88,30 +115,18 @@ app.use(cors({
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
+  allowedHeaders: [
+    'Content-Type',
+    'x-admin-key',
+    'x-wallet-address',
+    'x-message',
+    'x-signature',
+    'x-idempotency-key',
+  ],
 }));
 
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
-
-// Rate limiter for general API routes
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: isProduction ? 100 : 1000, // 100 requests per window in prod
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api/', apiLimiter);
-
-// Stricter rate limiter for OCR (expensive Gemini calls)
-const ocrLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: isProduction ? 20 : 200, // 20 OCR calls per hour in prod
-  message: 'OCR rate limit exceeded. Please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api/ocr', ocrLimiter);
 
 // Permissions Policy for clipboard access
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -147,23 +162,7 @@ app.get('/health', (req: Request, res: Response) => {
     app.use(adminInstitutionsRoutes.default);
 
     // Error handling middleware
-    app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-      logger.error('Express Error Handler', {
-        method: req.method,
-        url: req.url,
-        errorType: err?.constructor?.name,
-        errorMessage: err?.message,
-        stack: err?.stack,
-      });
-
-      if (!res.headersSent) {
-        const status = typeof err.status === 'number' ? err.status : 500;
-        res.status(status).json({
-          error: isProduction ? 'Internal Server Error' : err.message,
-          ...(isProduction ? {} : { stack: err.stack }),
-        });
-      }
-    });
+    app.use(errorHandler);
 
     // Start server after routes are loaded
     const server = app.listen(PORT, () => {
@@ -175,15 +174,16 @@ app.get('/health', (req: Request, res: Response) => {
     });
 
     // Keep the process alive
-    server.on('error', (error: any) => {
+    server.on('error', (error: Error) => {
       logger.error('Server error:', error);
       process.exit(1);
     });
-  } catch (error: any) {
+  } catch (error) {
+    const e = error instanceof Error ? error : new Error(String(error));
     logger.fatal('FATAL ERROR LOADING ROUTES', {
-      errorType: error?.constructor?.name,
-      errorMessage: error?.message,
-      stack: error?.stack,
+      errorType: e.constructor.name,
+      errorMessage: e.message,
+      stack: e.stack,
     });
     process.exit(1);
   }

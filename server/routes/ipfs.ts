@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import crypto from 'crypto';
 import { buildPdfPreviewSVG } from '../utils/pdfPreviewSvg';
@@ -34,7 +34,7 @@ const need = (name: string) => {
  * Body: multipart/form-data with 'file' field
  * Returns: { ok, cid, url, previewCid?, previewUrl?, mime, pages?, sha256, width?, height? }
  */
-router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     logger.info('IPFS Media Upload started');
 
@@ -79,11 +79,12 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
         previewBuffer = Buffer.from(svgString, 'utf8');
         previewMime = 'image/svg+xml';
         logger.debug('SVG preview generated successfully');
-      } catch (error: any) {
-        logger.error('SVG preview generation failed', { error: error.message });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('SVG preview generation failed', { error: message });
         return res.status(422).json({
           error: 'Failed to generate SVG preview',
-          details: error.message
+          details: message
         });
       }
     }
@@ -91,9 +92,9 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
     const sha256 = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
     logger.debug('File SHA-256 computed', { length: sha256.length });
 
-    async function uploadToIPFS(buffer: Buffer, filename: string, fileType: string) {
+    async function uploadToIPFS(buffer: Buffer, filename: string, fileType: string, mime: string) {
       const formData = new FormData();
-      const blob = new Blob([buffer], { type: req.file!.mimetype });
+      const blob = new Blob([buffer], { type: mime });
       formData.append('file', blob, filename);
 
       const metadata = JSON.stringify({
@@ -116,7 +117,7 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
 
       const uploadText = await uploadRes.text();
       if (!uploadRes.ok) {
-        let errorDetails: any;
+        let errorDetails: unknown;
         try { errorDetails = JSON.parse(uploadText); }
         catch { errorDetails = uploadText; }
         throw new Error(`Pinata upload failed: ${JSON.stringify(errorDetails)}`);
@@ -129,7 +130,8 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
     const uploadData = await uploadToIPFS(
       req.file.buffer,
       req.file.originalname,
-      isPdf ? 'certificate-pdf' : 'certificate-image'
+      isPdf ? 'certificate-pdf' : 'certificate-image',
+      req.file.mimetype
     );
     const cid = uploadData.IpfsHash;
     const url = `https://${PINATA_GATEWAY}/ipfs/${cid}`;
@@ -140,7 +142,7 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
     if (previewBuffer) {
       logger.info('Uploading SVG preview to Pinata');
       const previewName = req.file.originalname.replace(/\.pdf$/i, '-preview.svg');
-      const previewData = await uploadToIPFS(previewBuffer, previewName, 'certificate-preview');
+      const previewData = await uploadToIPFS(previewBuffer, previewName, 'certificate-preview', previewMime!);
       previewCid = previewData.IpfsHash;
       previewUrl = `https://${PINATA_GATEWAY}/ipfs/${previewCid}`;
       logger.info('SVG preview uploaded', { previewCid });
@@ -160,22 +162,29 @@ router.post('/api/ipfs/upload-media', upload.single('file'), async (req: Request
       timestamp: uploadData.Timestamp
     });
 
-  } catch (error: any) {
-    logger.error('IPFS Media Upload error', { error: error.message, stack: error.stack });
-    return res.status(500).json({
-      ok: false,
-      error: String(error?.message || error)
+  } catch (error) {
+    logger.error('IPFS Media Upload error', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
     });
+    next(error);
   }
 });
 
 // Legacy endpoint for backward compatibility
-router.post('/api/ipfs/upload-image', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/api/ipfs/upload-image', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     logger.info('IPFS Image Upload (Legacy) - Redirecting to /upload-media');
 
     if (!req.file) {
       return res.status(400).json({ error: 'Missing file (field "file")' });
+    }
+
+    if (!ALLOWED_MEDIA_TYPES.has(req.file.mimetype)) {
+      return res.status(415).json({
+        error: `Unsupported media type: ${req.file.mimetype}`,
+        allowed: Array.from(ALLOWED_MEDIA_TYPES)
+      });
     }
 
     const PINATA_JWT = need('PINATA_JWT');
@@ -207,7 +216,7 @@ router.post('/api/ipfs/upload-image', upload.single('file'), async (req: Request
     const uploadText = await uploadRes.text();
 
     if (!uploadRes.ok) {
-      let errorDetails: any;
+      let errorDetails: unknown;
       try { errorDetails = JSON.parse(uploadText); }
       catch { errorDetails = uploadText; }
       logger.error('Pinata upload error', { error: errorDetails });
@@ -230,11 +239,12 @@ router.post('/api/ipfs/upload-image', upload.single('file'), async (req: Request
       timestamp: uploadData.Timestamp
     });
 
-  } catch (error: any) {
-    logger.error('IPFS Image Upload error', { error: error.message, stack: error.stack });
-    return res.status(500).json({
-      error: String(error?.message || error)
+  } catch (error) {
+    logger.error('IPFS Image Upload error', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
     });
+    next(error);
   }
 });
 
@@ -244,7 +254,7 @@ router.post('/api/ipfs/upload-image', upload.single('file'), async (req: Request
  * Body: JSON object with metadata
  * Returns: { ipfsHash: string, ipfsUrl: string }
  */
-router.post('/api/ipfs/upload-metadata', async (req: Request, res: Response) => {
+router.post('/api/ipfs/upload-metadata', async (req: Request, res: Response, next: NextFunction) => {
   try {
     logger.info('IPFS Metadata Upload started');
 
@@ -275,7 +285,7 @@ router.post('/api/ipfs/upload-metadata', async (req: Request, res: Response) => 
       name: `${metadata.name}-metadata.json`,
       keyvalues: {
         type: 'certificate-metadata',
-        certificateId: metadata.attributes?.find((a: any) => a.trait_type === 'Certificate ID')?.value || 'unknown',
+        certificateId: metadata.attributes?.find((a: { trait_type?: string; value?: unknown }) => a.trait_type === 'Certificate ID')?.value || 'unknown',
         uploadedAt: new Date().toISOString()
       }
     });
@@ -294,7 +304,7 @@ router.post('/api/ipfs/upload-metadata', async (req: Request, res: Response) => 
     const uploadText = await uploadRes.text();
 
     if (!uploadRes.ok) {
-      let errorDetails: any;
+      let errorDetails: unknown;
       try { errorDetails = JSON.parse(uploadText); }
       catch { errorDetails = uploadText; }
       logger.error('Pinata metadata upload error', { error: errorDetails });
@@ -317,11 +327,12 @@ router.post('/api/ipfs/upload-metadata', async (req: Request, res: Response) => 
       timestamp: uploadData.Timestamp
     });
 
-  } catch (error: any) {
-    logger.error('IPFS Metadata Upload error', { error: error.message, stack: error.stack });
-    return res.status(500).json({
-      error: String(error?.message || error)
+  } catch (error) {
+    logger.error('IPFS Metadata Upload error', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
     });
+    next(error);
   }
 });
 

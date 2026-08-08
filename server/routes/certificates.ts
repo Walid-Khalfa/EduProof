@@ -1,28 +1,94 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
+import crypto from "crypto";
+import { verifyMessage, isAddress } from "viem";
 import { getSupabaseClient } from "../services/supabase";
 import { normalize } from "../utils/normalize";
 import { logger } from "../utils/logger";
 import { verifyMintTransaction, verifyTokenOnChain, ChainVerificationError, getChainConfig } from "../services/chain";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 const router = Router();
 
 const isProduction = process.env.NODE_ENV === "production";
 
+const INDEX_MESSAGE_PREFIX = "EduProof Cert Index:";
+
 /**
- * Query blockchain for NFTs owned by an address (DISABLED FOR DEMO)
- * Returns empty array - DB query is primary source
+ * PostgREST returns a to-one foreign-key join as a single object (or null),
+ * but supabase-js may type it as an array. Normalize to the object form.
  */
-async function queryChainForOwner(_ownerAddress: string, _supabase: SupabaseClient): Promise<any[]> {
-  logger.debug('queryChainForOwner skipped (demo mode - DB only)');
-  return [];
+function resolveInstitution(join: unknown): Record<string, unknown> | null {
+  const inst = Array.isArray(join) ? join[0] : join;
+  return inst && typeof inst === "object" ? (inst as Record<string, unknown>) : null;
+}
+
+/**
+ * Computes a stable dedup hash over the normalized OCR fields of a
+ * certificate. Backed by a partial unique index on (owner, ocr_dedup_hash)
+ * so duplicate detection does not rely on a 100-row in-memory scan.
+ */
+function computeOcrDedupHash(ocrJson: unknown): string | null {
+  if (!ocrJson || typeof ocrJson !== "object") return null;
+  const { student_name, course_name, institution, issue_date } = ocrJson as Record<string, unknown>;
+  if (!student_name || !course_name || !institution || !issue_date) return null;
+  const joined = [student_name, course_name, institution, issue_date]
+    .map((f) => normalize(String(f)))
+    .join("|");
+  return crypto.createHash("sha256").update(joined).digest("hex");
+}
+
+/**
+ * Requires an EIP-191 signature from the certificate owner over a message
+ * bound to the exact transaction hash being indexed. This proves the caller
+ * controls the wallet that sent the mint transaction, and prevents anyone
+ * from re-indexing public transaction data with forged metadata.
+ */
+async function verifyIndexSignature(
+  req: Request,
+  txHash: string,
+  owner: string
+): Promise<{ ok: boolean; reason?: string }> {
+  const walletHeader = (req.headers["x-wallet-address"] as string || "").toLowerCase();
+  const message = req.headers["x-message"] as string;
+  const signature = req.headers["x-signature"] as string;
+
+  if (!walletHeader || walletHeader !== owner || !message || !signature) {
+    return { ok: false, reason: "missing or mismatched auth headers" };
+  }
+  if (message !== `${INDEX_MESSAGE_PREFIX} ${txHash}`) {
+    return { ok: false, reason: "signature not bound to this transaction" };
+  }
+  try {
+    const recovered = await verifyMessage({
+      address: walletHeader as `0x${string}`,
+      message,
+      signature: signature as `0x${string}`,
+    });
+    if (!recovered) {
+      return { ok: false, reason: "signature does not match wallet" };
+    }
+  } catch {
+    return { ok: false, reason: "invalid signature" };
+  }
+  return { ok: true };
+}
+
+/** Parses a client-supplied value into a non-negative integer or null. */
+function parseOptionalInt(value: unknown, label: string): { value: number | null; error?: string } {
+  if (value === undefined || value === null || value === "") {
+    return { value: null };
+  }
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) {
+    return { value: null, error: `${label} must be a non-negative integer` };
+  }
+  return { value: n };
 }
 
 /**
  * Check if a certificate ID is available for a given institution
  * GET /api/certificates/availability?institution=...&certId=...
  */
-router.get("/api/certificates/availability", async (req: Request, res: Response) => {
+router.get("/api/certificates/availability", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -84,12 +150,9 @@ router.get("/api/certificates/availability", async (req: Request, res: Response)
       available: !data,
       message: data ? "Certificate ID already exists" : "Certificate ID is available"
     });
-  } catch (e: any) {
+  } catch (e) {
     logger.error("certificates/availability error", { error: e });
-    res.status(500).json({
-      ok: false,
-      error: String(e?.message || e)
-    });
+    next(e);
   }
 });
 
@@ -97,7 +160,7 @@ router.get("/api/certificates/availability", async (req: Request, res: Response)
  * Check for duplicate certificate before minting
  * POST /api/certificates/check-duplicate
  */
-router.post("/api/certificates/check-duplicate", async (req: Request, res: Response) => {
+router.post("/api/certificates/check-duplicate", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -130,7 +193,7 @@ router.post("/api/certificates/check-duplicate", async (req: Request, res: Respo
     if (existingCert && existingCert.length > 0) {
       const duplicate = existingCert.find(cert => {
         if (!cert.ocr_json) return false;
-        const ocr = cert.ocr_json as any;
+        const ocr = cert.ocr_json;
         return (
           normalize(ocr.student_name || "") === normalize(student_name) &&
           normalize(ocr.course_name || "") === normalize(course_name) &&
@@ -154,12 +217,9 @@ router.post("/api/certificates/check-duplicate", async (req: Request, res: Respo
     }
 
     res.json({ ok: true, exists: false });
-  } catch (e: any) {
+  } catch (e) {
     logger.error("certificates/check-duplicate error", { error: e });
-    res.status(500).json({
-      ok: false,
-      error: String(e?.message || e)
-    });
+    next(e);
   }
 });
 
@@ -167,7 +227,7 @@ router.post("/api/certificates/check-duplicate", async (req: Request, res: Respo
  * Index a minted certificate in the database
  * POST /api/certificates/index
  */
-router.post("/api/certificates/index", async (req: Request, res: Response) => {
+router.post("/api/certificates/index", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -203,13 +263,38 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
       });
     }
 
+    const owner = String(b.owner || "").toLowerCase();
+    if (!isAddress(owner)) {
+      return res.status(400).json({
+        ok: false,
+        error: "MISSING_OWNER",
+        message: "A valid owner address is required to index a certificate"
+      });
+    }
+
+    // The caller must prove control of the owner wallet with a signature
+    // bound to the transaction being indexed.
+    const authResult = await verifyIndexSignature(req, txHash, owner);
+    if (!authResult.ok) {
+      logger.warn("Index rejected: missing or invalid owner signature", {
+        owner,
+        txHash,
+        reason: authResult.reason
+      });
+      return res.status(401).json({
+        ok: false,
+        error: "UNAUTHORIZED_INDEX",
+        message: "A signature from the certificate owner wallet is required to index a certificate"
+      });
+    }
+
     // Verify the mint transaction on-chain before trusting the payload.
     // In production the API fails closed if the chain is not configured.
     const chainConfig = getChainConfig();
     if (chainConfig.configured) {
       try {
         const verification = await verifyMintTransaction(txHash, {
-          owner: b.owner ? String(b.owner) : undefined,
+          owner,
           tokenId: b.tokenId ? String(b.tokenId) : undefined,
         });
         b.tokenId = verification.tokenId;
@@ -218,7 +303,7 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
           tokenId: verification.tokenId,
           institution: verification.institution
         });
-      } catch (e: any) {
+      } catch (e) {
         if (e instanceof ChainVerificationError) {
           logger.warn("Index rejected: on-chain verification failed", {
             txHash,
@@ -244,6 +329,36 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
       logger.warn("Index accepted WITHOUT on-chain verification (development mode - RPC_URL/CERTIFICATE_CONTRACT not set)");
     }
 
+    const parsedTokenId = parseOptionalInt(b.tokenId, "tokenId");
+    if (parsedTokenId.error) {
+      return res.status(400).json({ ok: false, error: "INVALID_TOKEN_ID", message: parsedTokenId.error });
+    }
+    const parsedChainId = parseOptionalInt(b.chainId, "chainId");
+    if (parsedChainId.error) {
+      return res.status(400).json({ ok: false, error: "INVALID_CHAIN_ID", message: parsedChainId.error });
+    }
+
+    // Score is clamped to 0-100; it is a client-side OCR confidence estimate
+    // and is never trusted for verification decisions.
+    let score: number | null = null;
+    const rawScore = b.score;
+    if (rawScore !== undefined && rawScore !== null && rawScore !== "") {
+      const n = Number(rawScore);
+      if (!Number.isFinite(n)) {
+        return res.status(400).json({ ok: false, error: "INVALID_SCORE", message: "score must be a finite number" });
+      }
+      score = Math.min(100, Math.max(0, Math.round(n)));
+    }
+
+    const statusValue = b.status === undefined || b.status === null || b.status === "" ? "minted" : String(b.status);
+    if (!["minted", "revoked"].includes(statusValue)) {
+      return res.status(400).json({ ok: false, error: "INVALID_STATUS", message: "status must be 'minted' or 'revoked'" });
+    }
+
+    // The contract address is pinned server-side: the client can never
+    // steer verification toward a contract it controls.
+    const contractAddress = getChainConfig().certificateContract || null;
+
     // Check for duplicate certificate based on OCR data
     if (b.ocrJson) {
       const { student_name, course_name, institution: ocrInstitution, issue_date } = b.ocrJson;
@@ -252,14 +367,13 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
         const { data: existingCert } = await supabase
           .from("certificates")
           .select("id, cert_id, owner, ocr_json")
-          .eq("owner", String(b.owner || "").toLowerCase())
-          .not("ocr_json", "is", null)
-          .limit(100);
+          .eq("owner", owner)
+          .not("ocr_json", "is", null);
 
         if (existingCert && existingCert.length > 0) {
           const duplicate = existingCert.find(cert => {
             if (!cert.ocr_json) return false;
-            const ocr = cert.ocr_json as any;
+            const ocr = cert.ocr_json;
             return (
               normalize(ocr.student_name || "") === normalize(student_name) &&
               normalize(ocr.course_name || "") === normalize(course_name) &&
@@ -303,7 +417,8 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
         .insert({
           name: institution,
           name_normalized: institutionN,
-          wallet: b.owner || null
+          wallet: owner,
+          status: 'revoked'
         })
         .select("id")
         .single();
@@ -321,18 +436,19 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
       institution_id: institutionId,
       institution: institution,
       institution_norm: institutionN,
-      chain_id: b.chainId || null,
-      contract: String(b.contract || "").toLowerCase(),
-      token_id: String(b.tokenId || ""),
-      owner: String(b.owner || "").toLowerCase(),
+      chain_id: parsedChainId.value,
+      contract: contractAddress,
+      token_id: parsedTokenId.value,
+      owner,
       token_uri: b.tokenUri || null,
       image_cid: b.imageCid || null,
       meta_cid: b.metaCid || null,
       tx_hash: b.txHash || null,
-      score: b.score ?? null,
+      score,
       ocr_json: b.ocrJson || null,
+      ocr_dedup_hash: computeOcrDedupHash(b.ocrJson),
       verification_url: b.verificationUrl || null,
-      status: b.status || 'minted'
+      status: statusValue
     };
 
     logger.info("Indexing certificate", {
@@ -345,7 +461,7 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
     });
 
     // Use tx_hash as unique identifier when tokenId is missing
-    const upsertOptions = row.token_id
+    const upsertOptions = row.token_id !== null && contractAddress
       ? { onConflict: 'contract,token_id', ignoreDuplicates: false }
       : {};
 
@@ -356,27 +472,33 @@ router.post("/api/certificates/index", async (req: Request, res: Response) => {
       .single();
 
     if (error) {
+      if (error.code === '23505') {
+        logger.info("Index rejected: duplicate certificate", { certId, owner });
+        return res.status(409).json({
+          ok: false,
+          error: "DUPLICATE_CERTIFICATE",
+          message: "A certificate with identical details already exists"
+        });
+      }
       logger.error("certificates/index DB error", { error, row });
       throw error;
     }
 
     logger.info("Certificate indexed", { certId, institution, owner: row.owner });
     res.status(201).json({ ok: true, certificate: data });
-  } catch (e: any) {
+  } catch (e) {
     logger.error("certificates/index error", { error: e });
-    res.status(500).json({
-      ok: false,
-      error: String(e?.message || e)
-    });
+    next(e);
   }
 });
+
+router.get("/api/certificates/owner/:address", async (req: Request, res: Response, next: NextFunction) => {
 
 /**
  * Get certificates for a specific owner
  * GET /api/certificates/owner/:address
  * GET /api/certificates/owner/:address?source=chain (force chain query)
  */
-router.get("/api/certificates/owner/:address", async (req: Request, res: Response) => {
   try {
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -389,10 +511,11 @@ router.get("/api/certificates/owner/:address", async (req: Request, res: Respons
 
     const address = String(req.params.address || "").toLowerCase();
 
-    if (!address) {
+    if (!isAddress(address)) {
       return res.status(400).json({
         ok: false,
-        error: "MISSING_ADDRESS"
+        error: "MISSING_ADDRESS",
+        message: "A valid wallet address is required"
       });
     }
 
@@ -438,23 +561,23 @@ router.get("/api/certificates/owner/:address", async (req: Request, res: Respons
       throw error;
     }
 
-    const certificates = (data || []).map((cert: any) => ({
-      ...cert,
-      institutions: cert.institutions ? {
-        ...cert.institutions,
-        verified: (cert.institutions as any).status === 'approved'
-      } : null
-    }));
+    const certificates = (data || []).map(cert => {
+      const institutions = resolveInstitution(cert.institutions);
+      return {
+        ...cert,
+        institutions: institutions ? {
+          ...institutions,
+          verified: institutions.status === 'approved'
+        } : null
+      };
+    });
 
     logger.debug("certificates/owner returning certs from DB", { count: certificates.length, chainQueryDisabled: true });
 
     res.json({ ok: true, certificates });
-  } catch (e: any) {
+  } catch (e) {
     logger.error("certificates/owner error", { error: e });
-    res.status(500).json({
-      ok: false,
-      error: String(e?.message || e)
-    });
+    next(e);
   }
 });
 
@@ -465,7 +588,7 @@ router.get("/api/certificates/owner/:address", async (req: Request, res: Respons
  * GET /api/certificates/verify?txHash=...
  * GET /api/certificates/verify?contract=...&tokenId=...
  */
-router.get("/api/certificates/verify", async (req: Request, res: Response) => {
+router.get("/api/certificates/verify", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -624,16 +747,17 @@ router.get("/api/certificates/verify", async (req: Request, res: Response) => {
       });
     }
 
-    const certificate = data.institutions ? {
+    const institutions = resolveInstitution(data.institutions);
+    const certificate = institutions ? {
       ...data,
       institutions: {
-        ...data.institutions,
-        verified: data.institutions.status === 'approved'
+        ...institutions,
+        verified: institutions.status === 'approved'
       }
     } : data;
 
     // Cross-check the certificate against the blockchain when chain is configured
-    let onChain: any = null;
+    let onChain: Record<string, unknown> | null = null;
     const contractAddress = String(certificate.contract || "");
     if (contractAddress && certificate.token_id !== null && certificate.token_id !== undefined && certificate.token_id !== "") {
       try {
@@ -650,7 +774,7 @@ router.get("/api/certificates/verify", async (req: Request, res: Response) => {
           tokenId: certificate.token_id,
           chainId: certificate.chain_id || null
         };
-      } catch (e: any) {
+      } catch (e) {
         if (e instanceof ChainVerificationError) {
           logger.warn("verify: on-chain cross-check unavailable", { reason: e.message });
           onChain = { verified: null, reason: e.message };
@@ -667,12 +791,9 @@ router.get("/api/certificates/verify", async (req: Request, res: Response) => {
       certificate,
       onChain
     });
-  } catch (e: any) {
+  } catch (e) {
     logger.error("certificates/verify error", { error: e });
-    res.status(500).json({
-      ok: false,
-      error: String(e?.message || e)
-    });
+    next(e);
   }
 });
 

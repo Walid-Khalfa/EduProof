@@ -32,6 +32,16 @@ export interface OcrResult {
   verification_score: number;
 }
 
+/** Pure: averages the four field confidences into a 0-100 score. */
+export function computeVerificationScore(fieldsConfidence: Record<string, number>): number {
+  const score = (
+    ["student_name", "course_name", "institution", "issue_date"]
+      .map(key => Number(fieldsConfidence[key] ?? 0))
+      .reduce((a, b) => a + b, 0) / 4
+  ) * 100;
+  return Math.round(score);
+}
+
 export async function ocrWithPuter(file: File): Promise<OcrResult> {
   const puter = await loadPuter();
   const dataUrl = await fileToDataUrl(file);
@@ -58,14 +68,8 @@ export async function ocrWithPuter(file: File): Promise<OcrResult> {
   const data = JSON.parse(text.slice(startIndex, endIndex + 1));
   const fieldsConfidence = data.fields_confidence || {};
   
-  const score = (
-    ["student_name", "course_name", "institution", "issue_date"]
-      .map(key => Number(fieldsConfidence[key] ?? 0))
-      .reduce((a, b) => a + b, 0) / 4
-  ) * 100;
-
   return {
     ...data,
-    verification_score: Math.round(score)
+    verification_score: computeVerificationScore(fieldsConfidence)
   };
 }

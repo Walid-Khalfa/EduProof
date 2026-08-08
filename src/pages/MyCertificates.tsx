@@ -3,7 +3,7 @@ import Seo from '@/components/Seo';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Award, ExternalLink, Calendar, Building2, Loader2, AlertCircle } from 'lucide-react';
+import { Award, Calendar, Building2, AlertCircle } from 'lucide-react';
 import { useAccount } from 'wagmi';
 import { useState, useEffect } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -23,6 +23,7 @@ interface Certificate {
   meta_cid: string;
   tx_hash: string;
   score: number;
+  status: string;
   created_at: string;
   ocr_json: {
     student_name: string;
@@ -170,7 +171,9 @@ function MyCertificatesContent() {
               <Card key={cert.id} className="hover:shadow-lg transition-shadow shadow-md border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/40 backdrop-blur-sm">
                 <CardHeader>
                   <div className="flex items-start justify-between mb-2">
-                    <Badge variant="default">Active</Badge>
+                    <Badge variant={cert.status === 'revoked' ? 'destructive' : 'default'}>
+                      {cert.status === 'revoked' ? 'Revoked' : 'Active'}
+                    </Badge>
                     <span className="text-xs text-slate-500">#{cert.token_id || 'Pending'}</span>
                   </div>
                   <CardTitle className="text-lg">{cert.ocr_json?.course_name || 'N/A'}</CardTitle>

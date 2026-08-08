@@ -95,8 +95,13 @@ contract EduProofCertificate is ERC721URIStorage, AccessControl {
         require(bytes(tokenURI).length > 0, "EduProofCertificate: empty tokenURI");
         require(studentHash != bytes32(0), "EduProofCertificate: invalid student hash");
 
-        // Create unique certificate hash from certificate data
-        bytes32 certificateHash = keccak256(abi.encodePacked(
+        // Create unique certificate hash from certificate data.
+        // msg.sender is included so that the duplicate scope is per-issuer:
+        // another active institution can never burn the hash of a legitimate
+        // certificate by front-running it in the mempool. abi.encode (not
+        // encodePacked) avoids ambiguous concatenation of dynamic strings.
+        bytes32 certificateHash = keccak256(abi.encode(
+            msg.sender,
             studentName,
             courseName,
             institution,
@@ -109,10 +114,15 @@ contract EduProofCertificate is ERC721URIStorage, AccessControl {
         uint256 tokenId = _tokenIdCounter;
         _tokenIdCounter++;
 
-        _safeMint(to, tokenId);
-        _setTokenURI(tokenId, tokenURI);
+        // State must be committed BEFORE _safeMint: _safeMint invokes
+        // onERC721Received on contract recipients, and a malicious receiver
+        // could re-enter safeMint with identical data. Writing the duplicate
+        // flag first closes the reentrancy window.
         _studentHashes[tokenId] = studentHash;
         _certificateExists[certificateHash] = true;
+
+        _safeMint(to, tokenId);
+        _setTokenURI(tokenId, tokenURI);
 
         emit Minted(tokenId, msg.sender, studentHash, certificateHash);
     }
@@ -193,7 +203,9 @@ contract EduProofCertificate is ERC721URIStorage, AccessControl {
         string memory institution,
         string memory issueDate
     ) external view returns (bool) {
-        bytes32 certificateHash = keccak256(abi.encodePacked(
+        // Must match the preimage used in safeMint (issuer-bound hash)
+        bytes32 certificateHash = keccak256(abi.encode(
+            msg.sender,
             studentName,
             courseName,
             institution,

@@ -137,6 +137,13 @@ export async function verifyTokenOnChain(
     throw new ChainVerificationError("CHAIN_NOT_CONFIGURED");
   }
 
+  // The address read from the database must be the official certificate
+  // contract. Allowing arbitrary addresses here would let an attacker
+  // point verification at a contract they control and forge results.
+  if (contractAddress.toLowerCase() !== config.certificateContract) {
+    throw new ChainVerificationError("WRONG_CONTRACT");
+  }
+
   const client = getPublicClient();
   const abi = [
     parseAbiItem("function ownerOf(uint256 tokenId) external view returns (address)"),

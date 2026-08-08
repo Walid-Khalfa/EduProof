@@ -8,11 +8,15 @@ const router = express.Router();
 
 router.use(requireAdmin);
 
-router.get('/api/admin/institutions', async (req, res) => {
+router.get('/api/admin/institutions', async (req, res, next) => {
   try {
     const { search, status, limit = '10', offset = '0' } = req.query;
     const limitNum = parseInt(limit as string, 10);
     const offsetNum = parseInt(offset as string, 10);
+
+    if (!Number.isInteger(limitNum) || !Number.isInteger(offsetNum) || limitNum < 1 || limitNum > 100 || offsetNum < 0) {
+      return res.status(400).json({ error: 'invalid_payload', message: 'limit (1-100) and offset (>= 0) must be integers' });
+    }
 
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -45,7 +49,7 @@ router.get('/api/admin/institutions', async (req, res) => {
 
     if (itemsError) {
       logger.error('Failed to fetch institutions', { error: itemsError.message });
-      return res.status(500).json({ error: 'server_error', message: itemsError.message });
+      throw itemsError;
     }
 
     let countQuery = supabase
@@ -64,7 +68,7 @@ router.get('/api/admin/institutions', async (req, res) => {
 
     if (countError) {
       logger.error('Failed to count institutions', { error: countError.message });
-      return res.status(500).json({ error: 'server_error', message: countError.message });
+      throw countError;
     }
 
     const institutionIds = items?.map(i => i.id) || [];
@@ -100,13 +104,16 @@ router.get('/api/admin/institutions', async (req, res) => {
       limit: limitNum,
       offset: offsetNum
     });
-  } catch (err: any) {
-    logger.error('Unexpected error in GET /api/admin/institutions', { error: err.message, stack: err.stack });
-    return res.status(500).json({ error: 'server_error', message: err.message });
+  } catch (err) {
+    logger.error('Unexpected error in GET /api/admin/institutions', {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined
+    });
+    next(err);
   }
 });
 
-router.post('/api/admin/institutions', async (req, res) => {
+router.post('/api/admin/institutions', async (req, res, next) => {
   try {
     const { name, wallet, didUri, min_score = 70, status = 'approved' } = req.body;
 
@@ -132,7 +139,7 @@ router.post('/api/admin/institutions', async (req, res) => {
       return res.status(503).json({ ok: false, error: 'DATABASE_NOT_CONFIGURED', message: 'Database service is not available' });
     }
 
-    const { data: existing, error: checkError } = await supabase
+    const { data: existing } = await supabase
       .from('institutions')
       .select('id')
       .eq('name_normalized', name_normalized)
@@ -159,8 +166,7 @@ router.post('/api/admin/institutions', async (req, res) => {
       if (error.code === '23505') {
         return res.status(409).json({ error: 'duplicate_institution', message: 'Institution already exists' });
       }
-      logger.error('Failed to create institution', { error: error.message });
-      return res.status(500).json({ error: 'server_error', message: error.message });
+      throw error;
     }
 
     return res.status(201).json({
@@ -175,18 +181,21 @@ router.post('/api/admin/institutions', async (req, res) => {
         created_at: data.created_at
       }
     });
-  } catch (err: any) {
-    logger.error('Unexpected error in POST /api/admin/institutions', { error: err.message, stack: err.stack });
-    return res.status(500).json({ error: 'server_error', message: err.message });
+  } catch (err) {
+    logger.error('Unexpected error in POST /api/admin/institutions', {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined
+    });
+    next(err);
   }
 });
 
-router.patch('/api/admin/institutions/:id', async (req, res) => {
+router.patch('/api/admin/institutions/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
     const { name, wallet, didUri, min_score, status } = req.body;
 
-    const updates: any = {};
+    const updates: Record<string, unknown> = {};
 
     if (name !== undefined) {
       updates.name = name;
@@ -241,8 +250,7 @@ router.patch('/api/admin/institutions/:id', async (req, res) => {
       if (error.code === '23505') {
         return res.status(409).json({ error: 'duplicate_institution', message: 'Institution name already exists' });
       }
-      logger.error('Failed to update institution', { error: error.message });
-      return res.status(500).json({ error: 'server_error', message: error.message });
+      throw error;
     }
 
     return res.json({
@@ -257,13 +265,16 @@ router.patch('/api/admin/institutions/:id', async (req, res) => {
         updated_at: data.updated_at
       }
     });
-  } catch (err: any) {
-    logger.error('Unexpected error in PATCH /api/admin/institutions/:id', { error: err.message, stack: err.stack });
-    return res.status(500).json({ error: 'server_error', message: err.message });
+  } catch (err) {
+    logger.error('Unexpected error in PATCH /api/admin/institutions/:id', {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined
+    });
+    next(err);
   }
 });
 
-router.post('/api/admin/institutions/:id/revoke', async (req, res) => {
+router.post('/api/admin/institutions/:id/revoke', async (req, res, next) => {
   try {
     const { id } = req.params;
     const supabase = getSupabaseClient();
@@ -282,18 +293,20 @@ router.post('/api/admin/institutions/:id/revoke', async (req, res) => {
       if (error.code === 'PGRST116') {
         return res.status(404).json({ error: 'not_found', message: 'Institution not found' });
       }
-      logger.error('Failed to revoke institution', { error: error.message });
-      return res.status(500).json({ error: 'server_error', message: error.message });
+      throw error;
     }
 
     return res.json({ ok: true, status: data.status });
-  } catch (err: any) {
-    logger.error('Unexpected error in POST /api/admin/institutions/:id/revoke', { error: err.message, stack: err.stack });
-    return res.status(500).json({ error: 'server_error', message: err.message });
+  } catch (err) {
+    logger.error('Unexpected error in POST /api/admin/institutions/:id/revoke', {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined
+    });
+    next(err);
   }
 });
 
-router.post('/api/admin/institutions/:id/approve', async (req, res) => {
+router.post('/api/admin/institutions/:id/approve', async (req, res, next) => {
   try {
     const { id } = req.params;
     const supabase = getSupabaseClient();
@@ -312,14 +325,16 @@ router.post('/api/admin/institutions/:id/approve', async (req, res) => {
       if (error.code === 'PGRST116') {
         return res.status(404).json({ error: 'not_found', message: 'Institution not found' });
       }
-      logger.error('Failed to approve institution', { error: error.message });
-      return res.status(500).json({ error: 'server_error', message: error.message });
+      throw error;
     }
 
     return res.json({ ok: true, status: data.status });
-  } catch (err: any) {
-    logger.error('Unexpected error in POST /api/admin/institutions/:id/approve', { error: err.message, stack: err.stack });
-    return res.status(500).json({ error: 'server_error', message: err.message });
+  } catch (err) {
+    logger.error('Unexpected error in POST /api/admin/institutions/:id/approve', {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined
+    });
+    next(err);
   }
 });
 

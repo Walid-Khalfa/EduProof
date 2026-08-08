@@ -7,10 +7,67 @@ import "../src/TemporaryDeployFactory.sol";
 import "../src/EduProofCertificate.sol";
 import "../src/InstitutionRegistry.sol";
 
+/// @title MaliciousReceiver
+/// @notice Contract recipient that re-enters safeMint from onERC721Received
+/// @dev Registered as an active institution so the reentrant call passes the
+///      `_isInstitution` gate and reaches the duplicate-hash check itself.
+contract MaliciousReceiver {
+    EduProofCertificate public cert;
+    address public target;
+    string public uri;
+    bytes32 public studentHash;
+    string public studentName;
+    string public courseName;
+    string public institution;
+    string public issueDate;
+    bool public reentrantReverted;
+
+    function configure(
+        EduProofCertificate cert_,
+        address target_,
+        string memory uri_,
+        bytes32 studentHash_,
+        string memory studentName_,
+        string memory courseName_,
+        string memory institution_,
+        string memory issueDate_
+    ) external {
+        cert = cert_;
+        target = target_;
+        uri = uri_;
+        studentHash = studentHash_;
+        studentName = studentName_;
+        courseName = courseName_;
+        institution = institution_;
+        issueDate = issueDate_;
+    }
+
+    function onERC721Received(
+        address,
+        address,
+        uint256,
+        bytes calldata
+    ) external returns (bytes4) {
+        try cert.safeMint(
+            target,
+            uri,
+            studentHash,
+            studentName,
+            courseName,
+            institution,
+            issueDate
+        ) {
+            reentrantReverted = false;
+        } catch {
+            reentrantReverted = true;
+        }
+        return this.onERC721Received.selector;
+    }
+}
+
 /// @title TemporaryDeployFactoryTest
 /// @notice Comprehensive test suite for EduProof system
-contract TemporaryDeployFactoryTest is Test {
-    EduProofCertificate public certificate;
+contract TemporaryDeployFactoryTest is Test {    EduProofCertificate public certificate;
     InstitutionRegistry public registry;
     
     address public admin;
@@ -814,6 +871,42 @@ contract TemporaryDeployFactoryTest is Test {
         );
     }
 
+    /// @notice Different issuers must be able to issue the same credential
+    ///         tuple. Before the hash was bound to msg.sender, institution2
+    ///         could front-run institution1 in the mempool and permanently
+    ///         block a legitimate certificate with no admin reset path.
+    function testDifferentIssuerSameTupleAllowed() public {
+        certificate.grantRole(INSTITUTION_ROLE, institution1);
+        certificate.grantRole(INSTITUTION_ROLE, institution2);
+
+        bytes32 studentHash = keccak256(abi.encodePacked("John Doe"));
+
+        vm.prank(institution1);
+        certificate.safeMint(
+            student1,
+            "ipfs://certificate1",
+            studentHash,
+            "John Doe",
+            "Computer Science 101",
+            "MIT",
+            "2024-01-15"
+        );
+
+        // Same tuple from a different issuer must succeed
+        vm.prank(institution2);
+        certificate.safeMint(
+            student2,
+            "ipfs://certificate2",
+            studentHash,
+            "John Doe",
+            "Computer Science 101",
+            "MIT",
+            "2024-01-15"
+        );
+
+        assertEq(certificate.totalSupply(), 2, "Both issuers should be able to mint");
+    }
+
     function testAllowDifferentCertificatesForSameStudent() public {
         certificate.grantRole(INSTITUTION_ROLE, institution1);
 
@@ -853,7 +946,8 @@ contract TemporaryDeployFactoryTest is Test {
 
         bytes32 studentHash = keccak256(abi.encodePacked("John Doe"));
 
-        // Check certificate doesn't exist before minting
+        // Check certificate doesn't exist before minting (from issuer's perspective)
+        vm.prank(institution1);
         assertFalse(
             certificate.certificateExists(
                 "John Doe",
@@ -876,7 +970,8 @@ contract TemporaryDeployFactoryTest is Test {
             "2024-01-15"
         );
 
-        // Check certificate exists after minting
+        // Check certificate exists after minting (from issuer's perspective)
+        vm.prank(institution1);
         assertTrue(
             certificate.certificateExists(
                 "John Doe",
@@ -920,10 +1015,47 @@ contract TemporaryDeployFactoryTest is Test {
         assertEq(certificate.totalSupply(), 2, "Should have 2 certificates");
     }
 
+    // ============ Reentrancy Tests ============
+
+    /// @notice A malicious contract recipient registered as an active
+    ///         institution must not be able to mint the same certificate
+    ///         twice by re-entering safeMint from onERC721Received.
+    function testReentrantMintBlocked() public {
+        MaliciousReceiver receiver = new MaliciousReceiver();
+        receiver.configure(
+            certificate,
+            address(receiver),
+            "ipfs://certificate1",
+            keccak256(abi.encodePacked("John Doe")),
+            "John Doe",
+            "Computer Science 101",
+            "MIT",
+            "2024-01-15"
+        );
+
+        // The receiver is the minter AND the recipient; being an active
+        // institution lets its reentrant call pass the role gate.
+        registry.registerInstitution(address(receiver), "Evil U", "did:example:evil-u");
+
+        vm.prank(address(receiver));
+        certificate.safeMint(
+            address(receiver),
+            "ipfs://certificate1",
+            keccak256(abi.encodePacked("John Doe")),
+            "John Doe",
+            "Computer Science 101",
+            "MIT",
+            "2024-01-15"
+        );
+
+        assertTrue(receiver.reentrantReverted(), "Reentrant mint should have reverted");
+        assertEq(certificate.totalSupply(), 1, "Only one certificate should be minted");
+        assertEq(certificate.ownerOf(0), address(receiver), "Owner mismatch");
+    }
+
     // ============ Gas Optimization Tests ============
 
-    function testGasMintCertificate() public {
-        certificate.grantRole(INSTITUTION_ROLE, institution1);
+    function testGasMintCertificate() public {        certificate.grantRole(INSTITUTION_ROLE, institution1);
 
         bytes32 studentHash = keccak256(abi.encodePacked("John Doe"));
 

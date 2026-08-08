@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -11,6 +11,9 @@ const GATEWAYS = [
 
 const CID_REGEX = /^(Qm|baf)[A-Za-z0-9]+$/;
 const GATEWAY_TIMEOUT = 4000;
+const MAX_PREVIEW_BYTES = 512 * 1024;
+
+const isProduction = process.env.NODE_ENV === 'production';
 
 interface GatewayAttempt {
   url: string;
@@ -54,7 +57,6 @@ async function tryGateway(gateway: string, cid: string): Promise<{
   try {
     logger.debug('IPFS preview gateway attempt', { url });
 
-    const headStart = Date.now();
     const headResponse = await fetchWithTimeout(url, {
       method: 'HEAD',
       headers: { Accept: 'image/svg+xml' }
@@ -74,7 +76,6 @@ async function tryGateway(gateway: string, cid: string): Promise<{
       return { success: false, attempt };
     }
 
-    const getStart = Date.now();
     const getResponse = await fetchWithTimeout(url, {
       method: 'GET',
       headers: { Accept: 'image/svg+xml' }
@@ -85,7 +86,30 @@ async function tryGateway(gateway: string, cid: string): Promise<{
       return { success: false, attempt };
     }
 
-    const svg = await getResponse.text();
+    // Hard cap on the response body: gateways can serve arbitrary-sized
+    // objects and this route is unauthenticated, so an unbounded read is a
+    // memory-exhaustion vector. The stream is aborted past the limit.
+    const reader = getResponse.body?.getReader();
+    if (!reader) {
+      attempt.error = 'Response body unavailable';
+      return { success: false, attempt };
+    }
+
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > MAX_PREVIEW_BYTES) {
+        await reader.cancel();
+        attempt.error = 'Preview exceeds size limit';
+        return { success: false, attempt };
+      }
+      chunks.push(value);
+    }
+
+    const svg = Buffer.concat(chunks.map(c => Buffer.from(c))).toString('utf8');
     attempt.durationMs = Date.now() - startTime;
 
     if (!svg.trim().startsWith('<svg')) {
@@ -102,10 +126,11 @@ async function tryGateway(gateway: string, cid: string): Promise<{
       attempt
     };
 
-  } catch (error: any) {
-    attempt.error = error.message;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    attempt.error = message;
     attempt.durationMs = Date.now() - startTime;
-    logger.error('IPFS preview gateway error', { url, message: error.message });
+    logger.error('IPFS preview gateway error', { url, message });
     return { success: false, attempt };
   }
 }
@@ -135,7 +160,13 @@ async function fetchFromGateways(cid: string): Promise<{
   return { success: false, attempts };
 }
 
-router.get('/preview/:cid.debug', async (req: Request, res: Response) => {
+router.get('/preview/:cid.debug', async (req: Request, res: Response, next: NextFunction) => {
+  // Diagnostic endpoint: never exposed in production (leaks gateway URLs,
+  // statuses and body samples, and makes 3 outbound fetches per request).
+  if (isProduction) {
+    return res.status(404).json({ error: 'not_found', message: 'Not found' });
+  }
+
   const cid = String(req.params.cid || "");
   const startTime = Date.now();
 
@@ -176,17 +207,13 @@ router.get('/preview/:cid.debug', async (req: Request, res: Response) => {
         durationMs
       });
     }
-  } catch (error: any) {
-    logger.error('IPFS preview debug error', { cid, message: error.message });
-    return res.status(500).json({
-      error: 'debug_error',
-      message: error.message,
-      cid
-    });
+  } catch (error) {
+    logger.error('IPFS preview debug error', { cid, message: error instanceof Error ? error.message : String(error) });
+    next(error);
   }
 });
 
-router.get('/preview/:cid.svg', async (req: Request, res: Response) => {
+router.get('/preview/:cid.svg', async (req: Request, res: Response, next: NextFunction) => {
   const cid = String(req.params.cid || "");
   const startTime = Date.now();
 
@@ -226,13 +253,10 @@ router.get('/preview/:cid.svg', async (req: Request, res: Response) => {
         lastContentType: lastAttempt?.headType
       });
     }
-  } catch (error: any) {
-    logger.error('IPFS preview proxy error', { cid, message: error.message, stack: error.stack });
-    return res.status(500).json({
-      error: 'preview_proxy_error',
-      message: error.message,
-      cid
-    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error('IPFS preview proxy error', { cid, message, stack: error instanceof Error ? error.stack : undefined });
+    next(error);
   }
 });
 

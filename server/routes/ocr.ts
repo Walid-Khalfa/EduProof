@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { logger } from '../utils/logger';
 
@@ -35,7 +35,7 @@ function pickVisionModel(input?: string) {
   return candidates.find(m => !/flash-image/i.test(m))!;
 }
 
-router.post('/api/ocr', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/api/ocr', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     logger.info('OCR Request started');
     logger.debug('File present', { hasFile: req.file ? 'Yes' : 'No' });
@@ -110,7 +110,7 @@ Rules:
     };
 
     async function callGemini(model: string) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(API_KEY)}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
       logger.debug('Calling Gemini API', { model });
 
       const controller = new AbortController();
@@ -119,7 +119,9 @@ Rules:
       try {
         const r = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          // The API key rides in a header, not the URL: query strings are
+          // the most commonly logged part of a request across proxies.
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': API_KEY },
           body: JSON.stringify(body),
           signal: controller.signal
         });
@@ -128,7 +130,7 @@ Rules:
         logger.debug('Gemini response status', { status: r.status });
 
         if (!r.ok) {
-          let details: any;
+          let details: unknown;
           try {
             details = JSON.parse(txt);
           } catch {
@@ -145,7 +147,7 @@ Rules:
     }
 
     const tryModels = [MODEL, 'gemini-1.5-flash-002', 'gemini-1.5-pro-latest'];
-    let resp: any;
+    let resp: { ok: boolean; txt?: string; status?: number; details?: unknown } = { ok: false };
 
     for (const m of tryModels) {
       resp = await callGemini(m);
@@ -166,14 +168,19 @@ Rules:
       const s = resp.status === 400 ? 502 : resp.status || 500;
       return res.status(s).json({
         error: 'Gemini HTTP error',
-        details: resp.details
+        details: resp.status || 'UPSTREAM_ERROR'
       });
     }
 
-    const txt: string = resp.txt;
+    const txt: string = resp.txt ?? '';
     logger.debug('Gemini raw response received', { length: txt.substring(0, 500) });
 
-    let out: any;
+    let out: {
+      verification_url?: string;
+      certificate_id?: string;
+      institution?: string;
+      fields_confidence?: Record<string, number>;
+    } = {};
     try {
       const json = JSON.parse(txt);
       const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
@@ -250,18 +257,16 @@ Rules:
       verification_score: Math.round(score)
     });
 
-  } catch (error: any) {
+  } catch (error) {
+    const e = error as Error & { details?: unknown };
     logger.error('OCR error', {
-      errorType: error?.constructor?.name,
-      errorMessage: error?.message,
-      stack: error?.stack,
-      details: error.details
+      errorType: e?.constructor?.name,
+      errorMessage: e?.message,
+      stack: e?.stack,
+      details: e.details
     });
 
-    return res.status(500).json({
-      error: String(error?.message || error),
-      ...(error.details && { details: error.details })
-    });
+    next(error);
   }
 });
 
