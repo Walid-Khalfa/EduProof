@@ -183,35 +183,27 @@ router.post("/api/certificates/check-duplicate", async (req: Request, res: Respo
       return res.json({ ok: true, exists: false });
     }
 
-    const { data: existingCert } = await supabase
-      .from("certificates")
-      .select("id, cert_id, owner, ocr_json")
-      .eq("owner", String(b.owner || "").toLowerCase())
-      .not("ocr_json", "is", null)
-      .limit(100);
+    const dedupHash = computeOcrDedupHash(b.ocrJson);
+    if (dedupHash) {
+      // Exact lookup backed by the partial unique index (owner, ocr_dedup_hash):
+      // no in-memory scan, no row limit.
+      const { data: existingCert } = await supabase
+        .from("certificates")
+        .select("id, cert_id, owner")
+        .eq("owner", String(b.owner || "").toLowerCase())
+        .eq("ocr_dedup_hash", dedupHash)
+        .maybeSingle();
 
-    if (existingCert && existingCert.length > 0) {
-      const duplicate = existingCert.find(cert => {
-        if (!cert.ocr_json) return false;
-        const ocr = cert.ocr_json;
-        return (
-          normalize(ocr.student_name || "") === normalize(student_name) &&
-          normalize(ocr.course_name || "") === normalize(course_name) &&
-          normalize(ocr.institution || "") === normalize(institution) &&
-          normalize(ocr.issue_date || "") === normalize(issue_date)
-        );
-      });
-
-      if (duplicate) {
+      if (existingCert) {
         logger.info("Duplicate certificate found", {
-          existingCertId: duplicate.cert_id,
-          owner: duplicate.owner
+          existingCertId: existingCert.cert_id,
+          owner: existingCert.owner
         });
 
         return res.json({
           ok: true,
           exists: true,
-          existingCertId: duplicate.cert_id
+          existingCertId: existingCert.cert_id
         });
       }
     }

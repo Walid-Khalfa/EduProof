@@ -1,6 +1,6 @@
 # EduProof – Blockchain Academic Certification Platform
 
-**AI:** Gemini 2.5 Flash | **Chain:** CodeNut DevNet | **Storage:** IPFS | **Built with** CodeNut
+**AI:** Gemini 1.5 Flash | **Chain:** CodeNut DevNet | **Storage:** IPFS | **Built with** CodeNut
 
 🎓 Tamper-proof, AI-verified credentials minted as NFTs in under 60 seconds.
 
@@ -33,7 +33,7 @@
 
 ## Overview
 
-EduProof secures academic certificates by turning them into tamper-proof NFTs stored on IPFS. Using **CodeNut DevNet** and **Gemini 2.5 Flash AI**, it ensures instant, reliable verification for students, institutions, and employers. Built end-to-end on CodeNut Vibe Coding stack, the platform delivers a production-grade workflow from upload to verification scan.
+EduProof secures academic certificates by turning them into tamper-proof NFTs stored on IPFS. Using **CodeNut DevNet** and **Gemini 1.5 Flash AI**, it ensures instant, reliable verification for students, institutions, and employers. Built end-to-end on CodeNut Vibe Coding stack, the platform delivers a production-grade workflow from upload to verification scan.
 
 ---
 
@@ -41,7 +41,7 @@ EduProof secures academic certificates by turning them into tamper-proof NFTs st
 
 ```
 User -> Frontend (React) -> API
-               |-> Gemini 2.5 Flash (OCR + fraud detection)
+               |-> Gemini 1.5 Flash (OCR + fraud detection)
                |-> Smart Contract (Solidity / CodeNut DevNet)
                |-> IPFS (certificate storage)
                |-> Supabase (index & search)
@@ -51,12 +51,12 @@ User -> Frontend (React) -> API
 
 ## AI Validation (Production Feature)
 
-EduProof integrates **Gemini 2.5 Flash (latest)** for AI-powered document validation. The AI performs OCR, fraud detection, and on-chain metadata matching in real-time.
+EduProof integrates **Gemini 1.5 Flash (latest)** for AI-powered document validation. The AI performs OCR, fraud detection, and on-chain metadata matching in real-time.
 
 ### Pipeline
 
 1. User uploads PDF → hashed (SHA-256) + sent to IPFS
-2. Gemini 2.5 Flash extracts key fields (Name, Course, Institution, Date)
+2. Gemini 1.5 Flash extracts key fields (Name, Course, Institution, Date)
 3. Validates consistency and compares to NFT metadata
 4. Detects tampering, mismatches, or missing data
 5. Returns JSON verdict with score and issue list
@@ -97,7 +97,7 @@ EduProof integrates **Gemini 2.5 Flash (latest)** for AI-powered document valida
 
 - ✅ Mint academic certificates as NFTs
 - ✅ IPFS decentralized storage
-- ✅ AI-powered validation using Gemini 2.5 Flash
+- ✅ AI-powered validation using Gemini 1.5 Flash
 - ✅ On-chain verification (CodeNut DevNet)
 - ✅ Admin panel for authorized issuers
 - ✅ Zero transaction fees
@@ -109,7 +109,7 @@ EduProof integrates **Gemini 2.5 Flash (latest)** for AI-powered document valida
 | Feature | What Happens | Why it Matters |
 |---------|-------------|----------------|
 | **One-click certificate minting** | React dApp orchestrates wallet sign-in and ERC-721 mint on DevNet | Delivers auditable, ownership-bound credentials issued in under a minute |
-| **AI-assisted validation** | Gemini 2.5 Flash auto-extracts and cross-checks certificate data | Prevents clerical errors and fraud before anything hits the blockchain |
+| **AI-assisted validation** | Gemini 1.5 Flash auto-extracts and cross-checks certificate data | Prevents clerical errors and fraud before anything hits the blockchain |
 | **IPFS permanence** | Files and metadata pinned with redundant gateways | Guarantees long-term access to original documents without centralized risk |
 | **Supabase index & APIs** | Institution dashboard, analytics, and QR verification endpoints | Enables instant verification for employers and regulators via web or API |
 | **Admin governance** | Institution registry with revoke and restore controls | Keeps credential issuance under trusted, auditable oversight |
@@ -121,18 +121,18 @@ EduProof integrates **Gemini 2.5 Flash (latest)** for AI-powered document valida
 | Layer | Technology | Notes |
 |-------|-----------|-------|
 | **Smart Contracts** | EduProofCertificate.sol (`0x742d35Cc6634C0532925a3b844Bc9e7595f0bfbE`), InstitutionRegistry.sol (`0x09635F643e140090A9A8Dcd712eD6285858ceBef`) | Role-gated ERC-721 issuance and institution management on CodeNut DevNet |
-| **AI Services** | Gemini 2.5 Flash via CodeNut Vibe Coding runtime | Streams OCR, fraud heuristics, and metadata validation in real time |
+| **AI Services** | Gemini 1.5 Flash via CodeNut Vibe Coding runtime | Streams OCR, fraud heuristics, and metadata validation in real time |
 | **Storage & Data** | IPFS (Pinata), Supabase Postgres + RLS | Content-addressed storage plus searchable off-chain index |
 | **Frontend** | React 18, TypeScript, Tailwind, RainbowKit, Wagmi | Progressive onboarding flow with wallet support and live mint status |
 | **Backend** | Node.js API, Ethers.js, Foundry toolchain | Handles file hashing, AI orchestration, and contract transactions |
 
-⚙️ **Tech Stack:** React / Next.js · Solidity · Hardhat · IPFS · Supabase · MetaMask · Gemini 2.5 Flash · CodeNut (Vibe Coding)
+⚙️ **Tech Stack:** React / Next.js · Solidity · Hardhat · IPFS · Supabase · MetaMask · Gemini 1.5 Flash · CodeNut (Vibe Coding)
 
 ---
 
 ## Model
 
-**Gemini 2.5 Flash (latest)** by Google – used for OCR, semantic analysis, and fraud detection.
+**Gemini 1.5 Flash (latest)** by Google – used for OCR, semantic analysis, and fraud detection.
 
 ---
 
@@ -142,7 +142,7 @@ EduProof integrates **Gemini 2.5 Flash (latest)** for AI-powered document valida
 
 ```bash
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-1.5-flash-latest
 VITE_CHAIN=devnet
 SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
@@ -220,7 +220,7 @@ npm run dev
 | Stage | Status | Next Up |
 |-------|--------|---------|
 | MVP launch on DevNet | ✅ Live with end-to-end mint → verify pipeline | Expand issuer onboarding scripts |
-| AI validation v2 | ✅ Gemini 2.5 Flash integrated with scoring | Add explainable AI evidence per field |
+| AI validation v2 | ✅ Gemini 1.5 Flash integrated with scoring | Add explainable AI evidence per field |
 | Employer portal | 🚧 Prototype UI ready | Connect ATS webhook and read-only API keys |
 | Multi-chain expansion | 🧭 Research | Target Polygon and Base for cost-optimized issuance |
 
@@ -240,7 +240,7 @@ EduProof was built and deployed using **CodeNut's AI-powered Vibe Coding environ
 
 ## Hackathon Statement
 
-This project was developed for the **CodeNut Global Vibe: AI Web3 Hackathon 2025** and showcases how AI (Gemini 2.5 Flash) and blockchain (CodeNut DevNet) can combine to secure academic credentials worldwide.
+This project was developed for the **CodeNut Global Vibe: AI Web3 Hackathon 2025** and showcases how AI (Gemini 1.5 Flash) and blockchain (CodeNut DevNet) can combine to secure academic credentials worldwide.
 
 ---
 ## 🎬 Demo Video

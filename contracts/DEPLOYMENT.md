@@ -127,14 +127,22 @@ eduProofCertificate.grantRole(INSTITUTION_ROLE, institutionAddress);
 Institutions can mint certificates to students:
 
 ```solidity
-// Calculate student hash for privacy
-bytes32 studentHash = keccak256(abi.encodePacked("John Doe"));
+// Hash the student's name with the issuing institution's address so the
+// duplicate scope is per-issuer (front-running by another institution is
+// impossible), then pass the raw fields for the on-chain duplicate check.
+bytes32 studentHash = keccak256(abi.encodePacked(msg.sender, "John Doe"));
 
-// Mint certificate
+// Mint certificate (signature: safeMint(address, string, bytes32, string,
+// string, string, string) - to, tokenURI, studentHash, studentName,
+// courseName, institution, issueDate)
 eduProofCertificate.safeMint(
     studentAddress,
     "ipfs://QmXxxx...", // Token URI with certificate metadata
-    studentHash
+    studentHash,
+    "John Doe",
+    "Computer Science",
+    "Massachusetts Institute of Technology",
+    "2024-01-15"
 );
 ```
 
@@ -194,7 +202,7 @@ if (claimedHash == storedHash) {
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `safeMint(address, string, bytes32)` | INSTITUTION_ROLE | Mint a new certificate |
+| `safeMint(address, string, bytes32, string, string, string, string)` | INSTITUTION_ROLE | Mint a new certificate (7 arguments) |
 | `revoke(uint256, string)` | INSTITUTION_ROLE or Owner | Revoke a certificate |
 | `status(uint256)` | Public | Get certificate status |
 | `getRevocationInfo(uint256)` | Public | Get revocation details |

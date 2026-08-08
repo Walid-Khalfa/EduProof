@@ -142,10 +142,8 @@ curl -X POST http://localhost:3001/api/ocr \
 ```
 
 **Model Fallback Strategy:**
-1. Try `gemini-flash-latest` (primary)
-2. If fails, try `gemini-2.5-flash`
-3. If fails, try `gemini-2.5-pro`
-4. Return error if all models fail
+1. Try `gemini-1.5-flash-latest` (primary, via `GEMINI_MODEL`)
+2. Return error if the model fails
 
 **Timeout:** 30 seconds (configurable via `GEMINI_TIMEOUT_MS`)
 
@@ -624,7 +622,7 @@ curl "http://localhost:3001/api/certificates/verify?certId=CERT-2024-12345"
 
 **Allowed Methods:** GET, POST, PATCH, DELETE, OPTIONS
 
-**Allowed Headers:** Content-Type, x-admin-key, x-idempotency-key
+**Allowed Headers:** Content-Type, x-admin-key, x-wallet-address, x-message, x-signature, x-idempotency-key
 
 ---
 
